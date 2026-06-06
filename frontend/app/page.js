@@ -36,6 +36,23 @@ const requiredDocsByCaseType = {
   ],
 };
 
+const mockCodeGuidance = {
+  "Lumbar Spine MRI": ["72148", "72149", "72158"],
+  "Knee MRI": ["73721", "73722", "73723"],
+  "Shoulder MRI": ["73221", "73222", "73223"],
+  "Cervical Spine MRI": ["72141", "72142", "72156"],
+  Humira: ["J0135"],
+  Ozempic: ["J3490"],
+  Wegovy: ["J3490"],
+  Mounjaro: ["J3590"],
+  Enbrel: ["J1438"],
+  Stelara: ["J3357"],
+  Dupixent: ["J3590"],
+  Eliquis: ["J8499"],
+  Repatha: ["J3590"],
+  Xolair: ["J2357"],
+};
+
 const imagingDemoPatient = {
   case_type: "Imaging",
   patient_name: "Maria Lopez",
@@ -94,6 +111,7 @@ export default function Page() {
   const [form, setForm] = useState(imagingDemoPatient);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [codeConfirmation, setCodeConfirmation] = useState(null);
 
   const [workspaceMode, setWorkspaceMode] = useState("intake");
   const [patientTab, setPatientTab] = useState("summary");
@@ -148,6 +166,10 @@ export default function Page() {
   }, []);
 
   function updateForm(field, value) {
+    if (field === "diagnosis_code") {
+      setCodeConfirmation(null);
+    }
+
     setForm((prev) => ({
       ...prev,
       [field]: value,
@@ -232,10 +254,18 @@ export default function Page() {
     scrollToWorkspace();
   }
 
-  async function submitIntake(e) {
-    e.preventDefault();
+  async function submitIntake(e, options = {}) {
+    e?.preventDefault();
+
+    const codeReview = getCodeReviewForForm(form);
+    if (codeReview?.isMismatch && !options.skipCodeConfirmation) {
+      setCodeConfirmation(codeReview);
+      return;
+    }
+
     setLoading(true);
     setError("");
+    setCodeConfirmation(null);
 
     const payload = buildPatientPayload(form);
 
@@ -342,7 +372,7 @@ export default function Page() {
       <section className="mx-auto max-w-7xl px-6 py-4">
         <div className="grid gap-4 md:grid-cols-4">
           <MetricCard label="Total Cases" value={metrics.total_patients} />
-          <MetricCard label="High Risk Cases" value={metrics.high_risk_cases} />
+          <MetricCard label="Needs Review" value={metrics.high_risk_cases} />
           <MetricCard
             label="PA Required"
             value={metrics.prior_auth_required_count}
@@ -415,6 +445,8 @@ export default function Page() {
               loadImagingDemo={loadImagingDemo}
               loadMedicineDemo={loadMedicineDemo}
               onClose={showPatientQueue}
+              codeConfirmation={codeConfirmation}
+              onCancelCodeConfirmation={() => setCodeConfirmation(null)}
             />
 
             <IntakePreview form={form} />
@@ -502,7 +534,7 @@ function Hero() {
 
             <p className="mt-4 max-w-2xl text-lg text-slate-700">
               AI-powered healthcare operations assistant for patient intake,
-              insurance verification, prior authorization, denial-risk
+              insurance verification, prior authorization, readiness
               detection, and staff workflow recommendations.
             </p>
 
@@ -514,7 +546,7 @@ function Hero() {
                 Medicine Authorization
               </span>
               <span className="rounded-full bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700">
-                Denial Risk Scoring
+                AI Readiness Scoring
               </span>
             </div>
           </div>
@@ -525,7 +557,7 @@ function Hero() {
             </h2>
             <p className="mt-2 text-slate-700">
               Staff can create an intake, run AI analysis, and open a clean
-              patient record showing authorization risk, documents, history, and
+              patient record showing authorization score, documents, history, and
               case data.
             </p>
           </div>
@@ -543,8 +575,29 @@ function IntakeForm({
   loadImagingDemo,
   loadMedicineDemo,
   onClose,
+  codeConfirmation,
+  onCancelCodeConfirmation,
 }) {
   const isMedication = form.case_type === "Medication";
+  const codeReview = getCodeReviewForForm(form);
+  const [showCodeReview, setShowCodeReview] = useState(false);
+  const cptInputRef = useRef(null);
+
+  useEffect(() => {
+    setShowCodeReview(false);
+
+    if (!codeReview?.isMismatch) return;
+
+    const timeout = window.setTimeout(() => {
+      setShowCodeReview(true);
+    }, 1400);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    codeReview?.enteredCode,
+    codeReview?.isMismatch,
+    codeReview?.requestLabel,
+  ]);
 
   return (
     <form
@@ -645,13 +698,32 @@ function IntakeForm({
           onChange={(v) => updateForm("symptoms_duration_weeks", v)}
         />
 
-        <Input
-          label="Diagnosis Code"
-          value={form.diagnosis_code}
-          onChange={(v) => updateForm("diagnosis_code", v)}
-          placeholder="Example: M54.50"
-          required={false}
-        />
+        <div>
+          <Input
+            label="CPT / Diagnosis Code"
+            value={form.diagnosis_code}
+            onChange={(v) => updateForm("diagnosis_code", v)}
+            placeholder="Example: 72148 or M54.50"
+            required={false}
+            invalid={showCodeReview}
+            inputRef={cptInputRef}
+          />
+
+          {showCodeReview && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {codeReview.suggestions.map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => updateForm("diagnosis_code", code)}
+                  className="rounded-full border border-red-200 bg-white px-3 py-1 text-sm font-semibold text-red-700 shadow-sm hover:bg-red-50"
+                >
+                  {code}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {isMedication ? (
           <Select
@@ -766,6 +838,43 @@ function IntakeForm({
         </div>
       </div>
 
+      {codeConfirmation?.isMismatch && (
+        <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4">
+          <h3 className="font-semibold text-red-900">CPT Code Review</h3>
+          <p className="mt-2 text-sm text-red-700">
+            The entered code <strong>{codeConfirmation.enteredCode}</strong>{" "}
+            does not match the mock suggestions for{" "}
+            <strong>{codeConfirmation.requestLabel}</strong>. Do you still want
+            to continue?
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={(event) =>
+                submitIntake(event, { skipCodeConfirmation: true })
+              }
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Continue Anyway
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onCancelCodeConfirmation();
+                cptInputRef.current?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                });
+                window.setTimeout(() => cptInputRef.current?.focus(), 450);
+              }}
+              className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+            >
+              Review Code
+            </button>
+          </div>
+        </div>
+      )}
+
       <button
         type="submit"
         disabled={loading}
@@ -858,11 +967,11 @@ function IntakePreview({ form }) {
 
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <p className="text-sm font-bold text-slate-950">
-            Pre-Submission Risk Logic
+            Pre-Submission Score Logic
           </p>
           <p className="mt-2 text-sm text-slate-700">
             {missingDocs.length === 0
-              ? "All required documents are selected. In the demo view, the AI risk score will display as 0/100."
+              ? "All required documents are selected. In the demo view, the AI score will display as 0/100."
               : `${missingDocs.length} required document(s) are missing. The AI dashboard will flag this case before submission.`}
           </p>
         </div>
@@ -1023,7 +1132,7 @@ function PatientRecord({
           />
 
           <ResultCard
-            label="AI Risk Score"
+            label="AI Score"
             value={`${normalized.displayRiskScore}/100`}
             tone={
               normalized.displayRiskScore === 0
@@ -1037,7 +1146,7 @@ function PatientRecord({
           />
 
           <ResultCard
-            label="Denial Risk"
+            label="Review Level"
             value={normalized.displayRiskLabel}
             tone={
               normalized.displayRiskLabel === "High"
@@ -1217,7 +1326,7 @@ function EditPatientForm({ draft, updateDraft, saveDraft, saving }) {
           options={["None", "Incomplete", "Justified", "N/A"]}
         />
         <Input
-          label="Diagnosis Code"
+          label="CPT / Diagnosis Code"
           value={draft.diagnosis_code}
           onChange={(v) => updateDraft("diagnosis_code", v)}
           required={false}
@@ -1296,6 +1405,7 @@ function AISummaryTab({ normalized }) {
   const riskFactors = normalized.analysis?.risk_factors || [];
   const activeRiskFactors =
     normalized.displayRiskScore === 0 ? [] : riskFactors;
+  const codeReview = getCodeReviewForPatient(normalized);
 
   return (
     <div className="grid gap-5 lg:grid-cols-2">
@@ -1307,7 +1417,7 @@ function AISummaryTab({ normalized }) {
 
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="font-semibold text-slate-950">AI Risk Score</h3>
+            <h3 className="font-semibold text-slate-950">AI Score</h3>
             <span className="text-sm text-slate-500">
               {normalized.displayRiskScore}/100
             </span>
@@ -1332,12 +1442,12 @@ function AISummaryTab({ normalized }) {
 
           {normalized.displayRiskScore === 0 ? (
             <p className="mt-3 text-sm text-emerald-700">
-              All required documentation appears complete. The demo risk score
+              All required documentation appears complete. The demo AI score
               is reduced to 0/100.
             </p>
           ) : (
             <p className="mt-3 text-sm text-slate-600">
-              Risk is based on missing documentation, payer friction, and
+              Score is based on missing documentation, payer friction, and
               authorization readiness.
             </p>
           )}
@@ -1399,7 +1509,7 @@ function AISummaryTab({ normalized }) {
               ) : (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
                   <p className="text-sm font-semibold text-emerald-800">
-                    No active risk points are contributing to the displayed
+                    No active score points are contributing to the displayed
                     score.
                   </p>
                   <p className="mt-1 text-sm text-emerald-700">
@@ -1456,6 +1566,31 @@ function AISummaryTab({ normalized }) {
               "Prior authorization may be required. Supporting documentation should show medical necessity, diagnosis code, payer-specific requirements, and relevant clinical history."}
           </p>
         </div>
+
+        {codeReview?.isMismatch && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+            <h3 className="font-semibold text-red-900">CPT Code Review</h3>
+            <p className="mt-2 text-sm text-red-700">
+              The submitted code <strong>{codeReview.enteredCode}</strong> does
+              not match the mock CPT/code suggestions for{" "}
+              <strong>{codeReview.requestLabel}</strong>.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {codeReview.suggestions.map((code) => (
+                <span
+                  key={code}
+                  className="rounded-full border border-red-200 bg-white px-3 py-1 text-sm font-semibold text-red-700"
+                >
+                  Suggested: {code}
+                </span>
+              ))}
+            </div>
+            <p className="mt-3 text-xs font-medium text-red-600">
+              Mock coding guidance only. Staff should verify the final billing
+              code before submission.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1522,6 +1657,11 @@ function PatientHistoryTab({ normalized, patient }) {
   const completedDocs = Object.entries(docs)
     .filter(([, value]) => value)
     .map(([key]) => formatLabel(key));
+  const stillNeededItems = normalized.missingDocuments || [];
+  const diagnosisMissing = !patient?.diagnosis_code;
+  const referralNeedsAttention = ["Incomplete", "None"].includes(
+    patient?.referral_status
+  );
   const medicationName =
     normalized.caseType === "Medication"
       ? normalized.request.replace("Medication Prior Authorization - ", "")
@@ -1545,9 +1685,28 @@ function PatientHistoryTab({ normalized, patient }) {
     },
     {
       title: "Diagnosis and referral",
-      detail: `Diagnosis code: ${
-        patient?.diagnosis_code || "Not provided"
-      }. Referral status: ${patient?.referral_status || "N/A"}.`,
+      detail: (
+        <div className="flex flex-wrap gap-2">
+          <span
+            className={`rounded-full px-3 py-1 ${
+              diagnosisMissing
+                ? "bg-red-50 text-red-700"
+                : "bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            Diagnosis: {patient?.diagnosis_code || "Not provided"}
+          </span>
+          <span
+            className={`rounded-full px-3 py-1 ${
+              referralNeedsAttention
+                ? "bg-red-50 text-red-700"
+                : "bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            Referral: {patient?.referral_status || "N/A"}
+          </span>
+        </div>
+      ),
     },
     {
       title: "Insurance profile",
@@ -1562,6 +1721,25 @@ function PatientHistoryTab({ normalized, patient }) {
           ? completedDocs.join(", ")
           : "No supporting documents marked complete yet.",
     },
+    {
+      title: "Still needed",
+      detail:
+        stillNeededItems.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {stillNeededItems.map((item) => (
+              <span
+                key={item}
+                className="rounded-full border border-red-200 bg-white px-3 py-1 text-sm font-semibold text-red-700"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        ) : (
+          "Nothing else is needed right now. The checklist appears complete."
+        ),
+      tone: stillNeededItems.length > 0 ? "red" : "green",
+    },
   ];
 
   return (
@@ -1574,13 +1752,49 @@ function PatientHistoryTab({ normalized, patient }) {
       <div className="mt-5 space-y-4">
         {historyItems.map((item, index) => (
           <div key={index} className="flex gap-4">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+            <div
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${
+                item.tone === "red"
+                  ? "bg-red-600"
+                  : item.tone === "green"
+                    ? "bg-emerald-600"
+                    : "bg-blue-600"
+              }`}
+            >
               {index + 1}
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="font-semibold text-slate-950">{item.title}</p>
-              <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
+            <div
+              className={`rounded-xl border p-4 ${
+                item.tone === "red"
+                  ? "border-red-200 bg-red-50"
+                  : item.tone === "green"
+                    ? "border-emerald-200 bg-emerald-50"
+                    : "border-slate-200 bg-white"
+              }`}
+            >
+              <p
+                className={`font-semibold ${
+                  item.tone === "red"
+                    ? "text-red-900"
+                    : item.tone === "green"
+                      ? "text-emerald-900"
+                      : "text-slate-950"
+                }`}
+              >
+                {item.title}
+              </p>
+              <div
+                className={`mt-1 text-sm ${
+                  item.tone === "red"
+                    ? "text-red-700"
+                    : item.tone === "green"
+                      ? "text-emerald-700"
+                      : "text-slate-600"
+                }`}
+              >
+                {item.detail}
+              </div>
             </div>
           </div>
         ))}
@@ -1604,8 +1818,8 @@ function CaseDataTab({ normalized, patient }) {
     ["Diagnosis Code", patient?.diagnosis_code || "Missing"],
     ["Symptoms", normalized.symptoms],
     ["Prior Authorization Required", normalized.priorAuthRequired ? "Yes" : "No"],
-    ["AI Risk Score", `${normalized.displayRiskScore}/100`],
-    ["Denial Risk", normalized.displayRiskLabel],
+    ["AI Score", `${normalized.displayRiskScore}/100`],
+    ["Review Level", normalized.displayRiskLabel],
     ["Missing Document Count", normalized.missingDocuments.length],
     [
       "Staff Recommendation",
@@ -1729,7 +1943,7 @@ function PatientTable({ patients, openExistingPatient, onDeletePatient }) {
             type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by patient, request, insurance, risk..."
+            placeholder="Search by patient, request, insurance, status..."
             className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-blue-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
           <span className="pointer-events-none absolute left-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-500">
@@ -1751,7 +1965,7 @@ function PatientTable({ patients, openExistingPatient, onDeletePatient }) {
               <th className="p-3">Type</th>
               <th className="p-3">Insurance</th>
               <th className="p-3">AI Score</th>
-              <th className="p-3">Risk</th>
+              <th className="p-3">Review Level</th>
               <th className="p-3">Status</th>
               <th className="p-3">Actions</th>
             </tr>
@@ -1864,6 +2078,42 @@ function patientToEditableForm(patient) {
   };
 }
 
+function getCodeReviewForForm(form) {
+  const requestLabel =
+    form.case_type === "Medication"
+      ? form.requested_medication
+      : form.requested_procedure;
+
+  return getCodeReview({
+    code: form.diagnosis_code,
+    requestLabel,
+  });
+}
+
+function getCodeReviewForPatient(normalized) {
+  return getCodeReview({
+    code: normalized.diagnosisCode,
+    requestLabel:
+      normalized.caseType === "Medication"
+        ? normalized.request.replace("Medication Prior Authorization - ", "")
+        : normalized.request,
+  });
+}
+
+function getCodeReview({ code, requestLabel }) {
+  const enteredCode = String(code || "").trim().toUpperCase();
+  const suggestions = mockCodeGuidance[requestLabel] || [];
+
+  if (!enteredCode || suggestions.length === 0) return null;
+
+  return {
+    enteredCode,
+    requestLabel,
+    suggestions,
+    isMismatch: !suggestions.includes(enteredCode),
+  };
+}
+
 function normalizePatient(patient) {
   const analysis = patient?.analysis || {};
   const request =
@@ -1896,6 +2146,7 @@ function normalizePatient(patient) {
     caseType,
     insurance:
       patient?.provider || patient?.insurance_provider || "Unknown Insurance",
+    diagnosisCode: patient?.diagnosis_code || patient?.diagnosisCode || "",
     symptoms: patient?.symptoms || "No symptoms available.",
     status: patient?.status || "Pending Review",
     analysis,
@@ -1995,6 +2246,8 @@ function Input({
   type = "text",
   placeholder = "",
   required = true,
+  invalid = false,
+  inputRef,
 }) {
   return (
     <label className="block">
@@ -2002,12 +2255,17 @@ function Input({
         {label}
       </span>
       <input
+        ref={inputRef}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
-        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        className={`w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition ${
+          invalid
+            ? "border-red-400 ring-4 ring-red-100 focus:border-red-500 focus:ring-red-100"
+            : "border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        }`}
       />
     </label>
   );
