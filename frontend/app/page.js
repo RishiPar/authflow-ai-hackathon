@@ -1,1017 +1,1395 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { 
-  Activity, 
-  FileText, 
-  CheckCircle2, 
-  XCircle, 
-  AlertTriangle, 
-  Clock, 
-  ArrowUpRight, 
-  Plus, 
-  ShieldAlert, 
-  ArrowRight, 
-  Database, 
-  Sparkles, 
-  RefreshCw,
-  Info,
-  ExternalLink,
-  Shield,
-  Layers,
-  FileCheck
-} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+const API_BASE = "http://127.0.0.1:8000/api";
+
+const requiredDocsByCaseType = {
+  Imaging: [
+    "Eligibility Verified",
+    "Physician Order",
+    "Clinical Notes",
+    "Diagnosis Code",
+    "Conservative Treatment",
+    "Physical Therapy Notes",
+  ],
+  Medication: [
+    "Eligibility Verified",
+    "Prescription / Physician Order",
+    "Clinical Notes",
+    "Diagnosis Code",
+    "Medication History / Failed Alternatives",
+    "Formulary Exception / Step Therapy Notes",
+  ],
+};
+
+const demoPatient = {
+  case_type: "Imaging",
+  patient_name: "Maria Lopez",
+  age: "46",
+  symptoms: "Lower back pain for 8 weeks with limited mobility",
+  symptoms_duration_weeks: "8",
+  requested_procedure: "Lumbar Spine MRI",
+  requested_medication: "N/A",
+  insurance_provider: "BlueCross Mock PPO",
+  insurance_plan_type: "Commercial PPO",
+  referral_status: "Incomplete",
+  diagnosis_code: "",
+  eligibility_verification: true,
+  physician_order: false,
+  clinical_notes: true,
+  conservative_treatment: false,
+  physical_therapy_notes: false,
+  medication_history: false,
+  formulary_exception: false,
+};
+
+const medicineDemoPatient = {
+  case_type: "Medication",
+  patient_name: "James Carter",
+  age: "58",
+  symptoms:
+    "Chronic joint inflammation with inadequate response to lower-cost medication",
+  symptoms_duration_weeks: "12",
+  requested_procedure: "Medication Prior Authorization",
+  requested_medication: "Humira",
+  insurance_provider: "BlueCross Mock PPO",
+  insurance_plan_type: "Commercial PPO",
+  referral_status: "N/A",
+  diagnosis_code: "",
+  eligibility_verification: true,
+  physician_order: false,
+  clinical_notes: true,
+  conservative_treatment: false,
+  physical_therapy_notes: false,
+  medication_history: false,
+  formulary_exception: false,
+};
 
 export default function Page() {
-  // Application Data States
   const [patients, setPatients] = useState([]);
   const [metrics, setMetrics] = useState({
     total_patients: 0,
     high_risk_cases: 0,
     prior_auth_required_count: 0,
     missing_documents_count: 0,
-    estimated_time_saved_hours: 0,
-    estimated_delay_avoided_days: 0,
-    estimated_denial_risk_reduction_pct: 0
   });
-  const [policies, setPolicies] = useState([]);
-  const [auditLogs, setAuditLogs] = useState([]);
+
   const [selectedPatient, setSelectedPatient] = useState(null);
-
-  // Form States
-  const [patientName, setPatientName] = useState("");
-  const [age, setAge] = useState("");
-  const [symptoms, setSymptoms] = useState("");
-  const [symptomsDuration, setSymptomsDuration] = useState("");
-  const [procedure, setProcedure] = useState("Lumbar Spine MRI");
-  const [insurance, setInsurance] = useState("BlueCross Mock PPO");
-  const [planType, setPlanType] = useState("Commercial PPO");
-  const [referralStatus, setReferralStatus] = useState("None");
-  const [diagnosisCode, setDiagnosisCode] = useState("");
-  const [eligibilityVerified, setEligibilityVerified] = useState(false);
-  const [physicianOrder, setPhysicianOrder] = useState(false);
-  const [clinicalNotes, setClinicalNotes] = useState(false);
-  const [conservativeTx, setConservativeTx] = useState(false);
-  const [ptNotes, setPtNotes] = useState(false);
-
-  // App UI State
+  const [form, setForm] = useState(demoPatient);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [successMsg, setSuccessMsg] = useState("");
-  const [showIntakeForm, setShowIntakeForm] = useState(false);
+  const [error, setError] = useState("");
 
-  const API_BASE = "http://127.0.0.1:8000/api";
+  const [workspaceMode, setWorkspaceMode] = useState("intake");
+  const [patientTab, setPatientTab] = useState("summary");
+  const workspaceRef = useRef(null);
 
-  const loadData = async () => {
+  function scrollToWorkspace() {
+    window.setTimeout(() => {
+      workspaceRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 100);
+  }
+
+  async function loadDashboard() {
     try {
-      // 1. Fetch Patients
       const patientsRes = await fetch(`${API_BASE}/patients`);
-      if (!patientsRes.ok) throw new Error("Could not load patients list.");
-      const patientsData = await patientsRes.json();
-      setPatients(patientsData);
-
-      // Auto-select first patient if none selected
-      if (patientsData.length > 0 && !selectedPatient) {
-        setSelectedPatient(patientsData[0]);
-      } else if (selectedPatient) {
-        // Refresh selected patient
-        const updatedSelected = patientsData.find(p => p.id === selectedPatient.id);
-        if (updatedSelected) {
-          setSelectedPatient(updatedSelected);
-        }
-      }
-
-      // 2. Fetch Metrics
       const metricsRes = await fetch(`${API_BASE}/dashboard-metrics`);
-      if (metricsRes.ok) {
-        const metricsData = await metricsRes.json();
-        setMetrics(metricsData);
-      }
 
-      // 3. Fetch Policies
-      const policiesRes = await fetch(`${API_BASE}/payer-policies`);
-      if (policiesRes.ok) {
-        const policiesData = await policiesRes.json();
-        setPolicies(policiesData);
-      }
+      const patientsData = patientsRes.ok ? await patientsRes.json() : [];
+      const metricsData = metricsRes.ok ? await metricsRes.json() : metrics;
 
-      // 4. Fetch Audit Logs
-      const logsRes = await fetch(`${API_BASE}/audit-log`);
-      if (logsRes.ok) {
-        const logsData = await logsRes.json();
-        setAuditLogs(logsData);
-      }
+      setPatients(patientsData);
+      setMetrics(metricsData);
 
-      setError(null);
-    } catch (err) {
-      console.error(err);
-      setError("Failed to sync with FastAPI backend server on port 8000. Ensure server is running.");
+      setError("");
+    } catch {
+      setError("Backend is not running. Start FastAPI on http://127.0.0.1:8000");
     }
-  };
+  }
 
   useEffect(() => {
-    loadData();
+    loadDashboard();
   }, []);
 
-  const handlePatientSelect = (p) => {
-    setSelectedPatient(p);
-  };
+  function updateForm(field, value) {
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  }
 
-  const handleDocumentToggle = async (docKey, currentValue) => {
-    if (!selectedPatient) return;
-    
-    // Optimistic UI update
-    const patchPayload = { [docKey]: !currentValue };
-    
-    try {
-      const res = await fetch(`${API_BASE}/patients/${selectedPatient.id}/documents`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patchPayload)
-      });
-      
-      if (!res.ok) throw new Error("Failed to modify checklist state.");
-      
-      const updatedPatient = await res.json();
-      setSelectedPatient(updatedPatient);
-      
-      // Refresh listings
-      const patientsRes = await fetch(`${API_BASE}/patients`);
-      if (patientsRes.ok) setPatients(await patientsRes.json());
-      
-      const metricsRes = await fetch(`${API_BASE}/dashboard-metrics`);
-      if (metricsRes.ok) setMetrics(await metricsRes.json());
+  function startNewIntake() {
+    setWorkspaceMode("intake");
+    setPatientTab("summary");
+    setSelectedPatient(null);
+    setForm(demoPatient);
+  }
 
-      const logsRes = await fetch(`${API_BASE}/audit-log`);
-      if (logsRes.ok) setAuditLogs(await logsRes.json());
-      
-    } catch (err) {
-      console.error(err);
-      alert(err.message || "Failed to update database.");
-    }
-  };
+  function loadImagingDemo() {
+    setWorkspaceMode("intake");
+    setPatientTab("summary");
+    setSelectedPatient(null);
+    setForm(demoPatient);
+  }
 
-  const handleFormSubmit = async (e) => {
+  function loadMedicineDemo() {
+    setWorkspaceMode("intake");
+    setPatientTab("summary");
+    setSelectedPatient(null);
+    setForm(medicineDemoPatient);
+  }
+
+  function openExistingPatient(patient) {
+    setSelectedPatient(patient);
+    setWorkspaceMode("patient");
+    setPatientTab("summary");
+    scrollToWorkspace();
+  }
+
+  async function submitIntake(e) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
-    setSuccessMsg("");
+    setError("");
+
+    const requestedProcedure =
+      form.case_type === "Medication"
+        ? `Medication Prior Authorization - ${form.requested_medication}`
+        : form.requested_procedure;
 
     const payload = {
-      patient_name: patientName,
-      age: parseInt(age) || 0,
-      symptoms: symptoms,
-      symptoms_duration_weeks: parseInt(symptomsDuration) || 0,
-      requested_procedure: procedure,
-      insurance_provider: insurance,
-      insurance_plan_type: planType,
-      referral_status: referralStatus,
-      diagnosis_code: diagnosisCode || null,
+      patient_name: form.patient_name,
+      age: Number(form.age),
+      symptoms:
+        form.case_type === "Medication"
+          ? `${form.symptoms}. Requested medication: ${form.requested_medication}.`
+          : form.symptoms,
+      symptoms_duration_weeks: Number(form.symptoms_duration_weeks),
+      requested_procedure: requestedProcedure,
+      insurance_provider: form.insurance_provider,
+      insurance_plan_type: form.insurance_plan_type,
+      referral_status: form.referral_status,
+      diagnosis_code: form.diagnosis_code || null,
       documents_provided: {
         insurance_card: true,
-        eligibility_verification: eligibilityVerified,
-        physician_order: physicianOrder,
-        diagnosis_code_doc: !!diagnosisCode,
-        clinical_notes: clinicalNotes,
-        referral: referralStatus === "Justified",
-        conservative_treatment: conservativeTx,
-        physical_therapy_notes: ptNotes,
+        eligibility_verification: form.eligibility_verification,
+        physician_order: form.physician_order,
+        diagnosis_code_doc: Boolean(form.diagnosis_code),
+        clinical_notes: form.clinical_notes,
+        referral: form.referral_status === "Justified",
+        conservative_treatment:
+          form.case_type === "Medication"
+            ? form.medication_history
+            : form.conservative_treatment,
+        physical_therapy_notes:
+          form.case_type === "Medication"
+            ? form.formulary_exception
+            : form.physical_therapy_notes,
         prior_auth_form: false,
-        payer_policy_reference: false
-      }
+        payer_policy_reference: false,
+      },
     };
 
     try {
-      const response = await fetch(`${API_BASE}/intake`, {
+      const res = await fetch(`${API_BASE}/intake`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        throw new Error("API call failed. Check payload details.");
+      if (!res.ok) {
+        throw new Error("Failed to submit intake.");
       }
 
-      const newPatient = await response.json();
-      setSuccessMsg(`Patient ${newPatient.name} added to operations queue successfully.`);
-      
-      // Reset form fields
-      setPatientName("");
-      setAge("");
-      setSymptoms("");
-      setSymptomsDuration("");
-      setDiagnosisCode("");
-      setEligibilityVerified(false);
-      setPhysicianOrder(false);
-      setClinicalNotes(false);
-      setConservativeTx(false);
-      setPtNotes(false);
+      const newPatient = await res.json();
 
-      // Auto-select the newly created patient
       setSelectedPatient(newPatient);
+      setWorkspaceMode("patient");
+      setPatientTab("summary");
+      scrollToWorkspace();
 
-      // Sync Lists
-      await loadData();
-    } catch (err) {
-      setError(err.message || "Failed to submit patient intake.");
+      await loadDashboard();
+    } catch {
+      setError("Could not submit intake. Make sure the backend is running.");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
-    <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col font-sans pb-12">
-      
-      {/* 1. Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-xs px-6 py-4">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-blue-600 rounded-lg text-white">
-              <Activity className="h-6 w-6" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-gray-950">
-                AuthFlow AI <span className="text-gray-400 font-normal">|</span> Intelligent Healthcare Operations Assistant
-              </h1>
-              <p className="text-xs text-gray-500 mt-0.5">
-                AI-powered patient access, prior authorization, and revenue cycle support for hospitals and outpatient clinics.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={loadData}
-              className="p-2 text-gray-500 hover:text-blue-600 rounded-lg border border-gray-200 hover:bg-gray-50 transition"
-              title="Refresh data"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
+    <main className="min-h-screen bg-slate-50 text-slate-900">
+      <Hero />
 
-            {/* Live Demo badge */}
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              Live Demo
-            </div>
-
-            {/* View toggle */}
-            <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-full px-1 py-1">
-              <span className="text-[11px] font-semibold text-gray-500 pl-2">Traditional</span>
-              <a
-                href="/beforeDemo"
-                className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors focus:outline-none"
-                title="Switch to traditional workflow view"
-              >
-                <span className="inline-block h-4 w-4 translate-x-6 transform rounded-full bg-white shadow transition-transform" />
-              </a>
-              <span className="text-[11px] font-semibold text-blue-700 pr-2">AuthFlow AI</span>
-            </div>
-          </div>
+      <section className="mx-auto max-w-7xl px-6 py-6">
+        <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-4 text-sm text-yellow-900">
+          <strong>Demo safety notice:</strong> This MVP uses fake/mock patient
+          and insurance data only. It is not for clinical use, does not process
+          real PHI, and does not claim HIPAA compliance.
         </div>
-      </header>
+      </section>
 
-      <div className="max-w-5xl mx-auto w-full px-4 mt-6 space-y-6">
-
-        {/* 2+3. Compact notice banners */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 bg-amber-50 border-l-4 border-amber-500 px-4 py-2.5 rounded-r-xl flex items-center gap-2">
-            <ShieldAlert className="h-4 w-4 text-amber-600 shrink-0" />
-            <p className="text-[11px] text-amber-800 font-medium">Demo uses synthetic data only. Not for clinical use. Human review required before submission.</p>
-          </div>
-          <div className="flex-1 bg-blue-50 border-l-4 border-blue-600 px-4 py-2.5 rounded-r-xl flex items-center gap-2">
-            <Layers className="h-4 w-4 text-blue-700 shrink-0" />
-            <p className="text-[11px] text-blue-800 font-medium">Plug-and-play middleware — intercepts intake data, runs AI risk analysis, sends checklists to your EHR.</p>
-          </div>
+      <section className="mx-auto max-w-7xl px-6 py-4">
+        <div className="grid gap-4 md:grid-cols-4">
+          <MetricCard label="Total Cases" value={metrics.total_patients} />
+          <MetricCard label="High Risk Cases" value={metrics.high_risk_cases} />
+          <MetricCard
+            label="PA Required"
+            value={metrics.prior_auth_required_count}
+          />
+          <MetricCard
+            label="Missing Docs"
+            value={metrics.missing_documents_count}
+          />
         </div>
+      </section>
 
-        {/* 4. Dashboard Summary Metrics */}
-        <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-4">
-            Operations Queue Performance Summary
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-            <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 text-center">
-              <span className="text-[10px] text-gray-500 block uppercase font-semibold">Total cases</span>
-              <span className="text-xl font-extrabold text-gray-900 block mt-1">{metrics.total_patients}</span>
-            </div>
-            <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-center">
-              <span className="text-[10px] text-red-600 block uppercase font-semibold">High risk</span>
-              <span className="text-xl font-extrabold text-red-700 block mt-1">{metrics.high_risk_cases}</span>
-            </div>
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
-              <span className="text-[10px] text-blue-600 block uppercase font-semibold">PA Required</span>
-              <span className="text-xl font-extrabold text-blue-700 block mt-1">{metrics.prior_auth_required_count}</span>
-            </div>
-            <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
-              <span className="text-[10px] text-amber-600 block uppercase font-semibold">Missing Docs</span>
-              <span className="text-xl font-extrabold text-amber-700 block mt-1">{metrics.missing_documents_count}</span>
-            </div>
-            <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
-              <span className="text-[10px] text-emerald-600 block uppercase font-semibold">Time Saved</span>
-              <span className="text-xl font-extrabold text-emerald-700 block mt-1">{metrics.estimated_time_saved_hours}h</span>
-            </div>
-            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-center">
-              <span className="text-[10px] text-indigo-600 block uppercase font-semibold">Delays avoided</span>
-              <span className="text-xl font-extrabold text-indigo-700 block mt-1">{metrics.estimated_delay_avoided_days}d</span>
-            </div>
-            <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 text-center">
-              <span className="text-[10px] text-purple-600 block uppercase font-semibold">Risk Reduced</span>
-              <span className="text-xl font-extrabold text-purple-700 block mt-1">{metrics.estimated_denial_risk_reduction_pct}%</span>
-            </div>
+      <WorkflowSection />
+
+      {error && (
+        <section className="mx-auto max-w-7xl px-6 py-2">
+          <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-700">
+            {error}
           </div>
         </section>
+      )}
 
-        {/* Error Notification */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl flex items-start gap-3">
-            <XCircle className="h-5 w-5 shrink-0 mt-0.5" />
-            <div>
-              <h4 className="font-bold text-sm">System Sync Interrupted</h4>
-              <p className="text-xs mt-0.5">{error}</p>
+      <section ref={workspaceRef} className="mx-auto max-w-7xl px-6 py-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-950">
+              Case Workspace
+            </h2>
+            <p className="text-sm text-slate-500">
+              Create a new intake or open a saved patient record.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={startNewIntake}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              New Intake
+            </button>
+
+            <button
+              onClick={loadImagingDemo}
+              className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+            >
+              Load Imaging Demo
+            </button>
+
+            <button
+              onClick={loadMedicineDemo}
+              className="rounded-lg border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100"
+            >
+              Load Medicine Demo
+            </button>
+          </div>
+        </div>
+
+        {workspaceMode === "intake" ? (
+          <section className="grid gap-6 lg:grid-cols-2">
+            <IntakeForm
+              form={form}
+              updateForm={updateForm}
+              submitIntake={submitIntake}
+              loading={loading}
+              loadImagingDemo={loadImagingDemo}
+              loadMedicineDemo={loadMedicineDemo}
+            />
+
+            <IntakePreview form={form} />
+          </section>
+        ) : (
+          <PatientRecord
+            patient={selectedPatient}
+            patientTab={patientTab}
+            setPatientTab={setPatientTab}
+            onNewIntake={startNewIntake}
+          />
+        )}
+      </section>
+
+      <OperationsQueue
+        patients={patients}
+        openExistingPatient={openExistingPatient}
+      />
+
+      <ArchitectureSection />
+    </main>
+  );
+}
+
+function Hero() {
+  return (
+    <section className="border-b border-slate-200 bg-white">
+      <div className="mx-auto max-w-7xl px-6 py-10">
+        <div className="mb-4 inline-flex rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700">
+          Imaging + Medication Prior Authorization MVP
+        </div>
+
+        <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
+          <div>
+            <h1 className="text-4xl font-bold tracking-tight text-slate-950 md:text-6xl">
+              AuthFlow AI
+            </h1>
+
+            <p className="mt-4 max-w-2xl text-lg text-slate-700">
+              AI-powered healthcare operations assistant for patient intake,
+              insurance verification, prior authorization, denial-risk
+              detection, and staff workflow recommendations.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <span className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700">
+                Imaging Authorization
+              </span>
+              <span className="rounded-full bg-purple-50 px-4 py-2 text-sm font-medium text-purple-700">
+                Medicine Authorization
+              </span>
+              <span className="rounded-full bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700">
+                Denial Risk Scoring
+              </span>
             </div>
           </div>
-        )}
 
-        {/* 5. Patient Intake Form — collapsible */}
-        <section className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-          <button
-            onClick={() => setShowIntakeForm(s => !s)}
-            className="w-full flex items-center justify-between p-6 text-left hover:bg-gray-50 transition"
-          >
-            <h2 className="text-base font-bold text-gray-950 flex items-center gap-2">
-              <Plus className="h-5 w-5 text-blue-600" />
-              Add New Patient to Queue
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-950">
+              Streamlined Staff Workflow
             </h2>
-            <span className="text-xs text-blue-600 font-semibold border border-blue-200 bg-blue-50 px-3 py-1 rounded-full">
-              {showIntakeForm ? "Hide Form ▲" : "Open Form ▼"}
-            </span>
+            <p className="mt-2 text-slate-700">
+              Staff can create an intake, run AI analysis, then open a saved
+              patient record with tabs for summary, uploaded documents, history,
+              and raw operational data.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WorkflowSection() {
+  return (
+    <section className="mx-auto max-w-7xl px-6 py-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-2xl font-bold text-slate-950">AI Workflow</h2>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-5">
+          <WorkflowStep number="1" title="Patient Intake" />
+          <WorkflowStep number="2" title="Eligibility Check" />
+          <WorkflowStep number="3" title="Policy Retrieval" />
+          <WorkflowStep number="4" title="Risk Analysis" />
+          <WorkflowStep number="5" title="Patient Record" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function IntakeForm({
+  form,
+  updateForm,
+  submitIntake,
+  loading,
+  loadImagingDemo,
+  loadMedicineDemo,
+}) {
+  const isMedication = form.case_type === "Medication";
+  const tone = isMedication
+    ? {
+        form: "border-purple-200 bg-purple-50/70 shadow-purple-100",
+        heading: "text-purple-950",
+        description: "text-purple-700",
+        activeButton: "border-purple-700 bg-purple-600 text-white shadow-sm",
+        inactiveButton:
+          "border-blue-200 bg-white text-blue-700 hover:bg-blue-50",
+        submit: "bg-purple-600 hover:bg-purple-700 focus:ring-purple-100",
+      }
+    : {
+        form: "border-blue-200 bg-blue-50/70 shadow-blue-100",
+        heading: "text-blue-950",
+        description: "text-blue-700",
+        activeButton: "border-blue-700 bg-blue-600 text-white shadow-sm",
+        inactiveButton:
+          "border-purple-200 bg-white text-purple-700 hover:bg-purple-50",
+        submit: "bg-blue-600 hover:bg-blue-700 focus:ring-blue-100",
+      };
+
+  return (
+    <form
+      onSubmit={submitIntake}
+      className={`rounded-2xl border p-6 shadow-sm transition-colors duration-300 ${tone.form}`}
+    >
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <div>
+          <h2 className={`text-2xl font-bold ${tone.heading}`}>
+            Patient Intake
+          </h2>
+          <p className={`text-sm ${tone.description}`}>
+            Submit a mock imaging or medicine authorization request.
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={loadImagingDemo}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              isMedication ? tone.inactiveButton : tone.activeButton
+            }`}
+          >
+            Imaging
           </button>
 
-          {showIntakeForm && (
-          <div className="px-6 pb-6">
-          {successMsg && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-850 px-4 py-3 rounded-lg text-xs font-semibold mb-4">
-              {successMsg}
-            </div>
+          <button
+            type="button"
+            onClick={loadMedicineDemo}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              isMedication ? tone.activeButton : tone.inactiveButton
+            }`}
+          >
+            Medicine
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-5 grid gap-4 md:grid-cols-2">
+        <Select
+          label="Case Type"
+          value={form.case_type}
+          onChange={(v) => {
+            if (v === "Medication") {
+              updateForm("case_type", "Medication");
+              updateForm("requested_procedure", "Medication Prior Authorization");
+              updateForm("requested_medication", "Humira");
+              updateForm("referral_status", "N/A");
+            } else {
+              updateForm("case_type", "Imaging");
+              updateForm("requested_procedure", "Lumbar Spine MRI");
+              updateForm("requested_medication", "N/A");
+              updateForm("referral_status", "Incomplete");
+            }
+          }}
+          options={["Imaging", "Medication"]}
+        />
+
+        <Select
+          label="Insurance Provider"
+          value={form.insurance_provider}
+          onChange={(v) => updateForm("insurance_provider", v)}
+          options={[
+            "BlueCross Mock PPO",
+            "Medicare Advantage Mock Plan",
+            "Medicaid Mock Managed Care",
+            "UnitedCare Mock Commercial",
+            "Self-Pay / Unverified Insurance",
+          ]}
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Input
+          label="Patient Name"
+          value={form.patient_name}
+          onChange={(v) => updateForm("patient_name", v)}
+        />
+
+        <Input
+          label="Age"
+          type="number"
+          value={form.age}
+          onChange={(v) => updateForm("age", v)}
+        />
+
+        <Input
+          label="Symptom Duration Weeks"
+          type="number"
+          value={form.symptoms_duration_weeks}
+          onChange={(v) => updateForm("symptoms_duration_weeks", v)}
+        />
+
+        <Input
+          label="Diagnosis Code"
+          value={form.diagnosis_code}
+          onChange={(v) => updateForm("diagnosis_code", v)}
+          placeholder="Example: M54.50"
+          required={false}
+        />
+
+        {isMedication ? (
+          <Select
+            label="Medicine"
+            value={form.requested_medication}
+            onChange={(v) => updateForm("requested_medication", v)}
+            options={[
+              "Humira",
+              "Ozempic",
+              "Wegovy",
+              "Mounjaro",
+              "Enbrel",
+              "Stelara",
+              "Dupixent",
+              "Eliquis",
+              "Repatha",
+              "Xolair",
+            ]}
+          />
+        ) : (
+          <Select
+            label="Procedure"
+            value={form.requested_procedure}
+            onChange={(v) => updateForm("requested_procedure", v)}
+            options={[
+              "Lumbar Spine MRI",
+              "Knee MRI",
+              "Shoulder MRI",
+              "Cervical Spine MRI",
+            ]}
+          />
+        )}
+
+        <Select
+          label="Plan Type"
+          value={form.insurance_plan_type}
+          onChange={(v) => updateForm("insurance_plan_type", v)}
+          options={[
+            "Commercial PPO",
+            "Medicare Advantage Mock Plan",
+            "Medicaid Mock Managed Care",
+            "Self-Pay / Unverified",
+          ]}
+        />
+
+        <Select
+          label="Referral Status"
+          value={form.referral_status}
+          onChange={(v) => updateForm("referral_status", v)}
+          options={["None", "Incomplete", "Justified", "N/A"]}
+        />
+      </div>
+
+      <div className="mt-4">
+        <label className="mb-2 block text-sm font-medium text-slate-700">
+          Symptoms / Medical Need
+        </label>
+        <textarea
+          value={form.symptoms}
+          onChange={(e) => updateForm("symptoms", e.target.value)}
+          className="min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          placeholder="Describe symptoms and medical need..."
+        />
+      </div>
+
+      <div className="mt-5">
+        <p className="mb-3 text-sm font-medium text-slate-700">
+          Documents Provided
+        </p>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <Checkbox
+            label="Eligibility Verified"
+            checked={form.eligibility_verification}
+            onChange={(v) => updateForm("eligibility_verification", v)}
+          />
+
+          <Checkbox
+            label={
+              isMedication
+                ? "Prescription / Physician Order"
+                : "Physician Order"
+            }
+            checked={form.physician_order}
+            onChange={(v) => updateForm("physician_order", v)}
+          />
+
+          <Checkbox
+            label="Clinical Notes"
+            checked={form.clinical_notes}
+            onChange={(v) => updateForm("clinical_notes", v)}
+          />
+
+          {isMedication ? (
+            <>
+              <Checkbox
+                label="Medication History / Failed Alternatives"
+                checked={form.medication_history}
+                onChange={(v) => updateForm("medication_history", v)}
+              />
+
+              <Checkbox
+                label="Formulary Exception / Step Therapy Notes"
+                checked={form.formulary_exception}
+                onChange={(v) => updateForm("formulary_exception", v)}
+              />
+            </>
+          ) : (
+            <>
+              <Checkbox
+                label="Conservative Treatment"
+                checked={form.conservative_treatment}
+                onChange={(v) => updateForm("conservative_treatment", v)}
+              />
+
+              <Checkbox
+                label="Physical Therapy Notes"
+                checked={form.physical_therapy_notes}
+                onChange={(v) => updateForm("physical_therapy_notes", v)}
+              />
+            </>
           )}
+        </div>
+      </div>
 
-          <form onSubmit={handleFormSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Patient Name</label>
-                <input 
-                  type="text" 
-                  value={patientName} 
-                  onChange={(e) => setPatientName(e.target.value)} 
-                  required 
-                  placeholder="e.g. Elena Garcia" 
-                  className="w-full bg-gray-55 border border-gray-250 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 rounded-lg px-3 py-2 text-sm outline-none transition" 
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Age</label>
-                <input 
-                  type="number" 
-                  value={age} 
-                  onChange={(e) => setAge(e.target.value)} 
-                  required 
-                  placeholder="e.g. 44" 
-                  className="w-full bg-gray-55 border border-gray-250 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 rounded-lg px-3 py-2 text-sm outline-none transition" 
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Symptom Duration (Weeks)</label>
-                <input 
-                  type="number" 
-                  value={symptomsDuration} 
-                  onChange={(e) => setSymptomsDuration(e.target.value)} 
-                  required 
-                  placeholder="e.g. 6" 
-                  className="w-full bg-gray-55 border border-gray-250 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 rounded-lg px-3 py-2 text-sm outline-none transition" 
-                />
-              </div>
-            </div>
+      <button
+        type="submit"
+        disabled={loading}
+        className={`mt-6 w-full rounded-xl px-4 py-3 font-semibold text-white shadow-sm transition-colors focus:outline-none focus:ring-4 disabled:cursor-not-allowed disabled:opacity-60 ${tone.submit}`}
+      >
+        {loading ? "Running AI Analysis..." : "Create Intake Record & Analyze"}
+      </button>
+    </form>
+  );
+}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Clinical Intake symptoms</label>
-                <input 
-                  type="text" 
-                  value={symptoms} 
-                  onChange={(e) => setSymptoms(e.target.value)} 
-                  required 
-                  placeholder="e.g. Neck pain radiating down left arm for 6 weeks" 
-                  className="w-full bg-gray-55 border border-gray-250 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 rounded-lg px-3 py-2 text-sm outline-none transition" 
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Diagnosis Code / ICD-10 (If known)</label>
-                <input 
-                  type="text" 
-                  value={diagnosisCode} 
-                  onChange={(e) => setDiagnosisCode(e.target.value)} 
-                  placeholder="e.g. M50.21 (Optional)" 
-                  className="w-full bg-gray-55 border border-gray-250 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 rounded-lg px-3 py-2 text-sm outline-none transition" 
-                />
-              </div>
-            </div>
+function IntakePreview({ form }) {
+  const isMedication = form.case_type === "Medication";
+  const requiredDocs = requiredDocsByCaseType[form.case_type];
+  const tone = isMedication
+    ? {
+        panel: "border-purple-200 bg-purple-50/70 shadow-purple-100",
+        heading: "text-purple-950",
+        description: "text-purple-700",
+        logic: "border-purple-200 bg-purple-100 text-purple-900",
+        logicBody: "text-purple-800",
+      }
+    : {
+        panel: "border-blue-200 bg-blue-50/70 shadow-blue-100",
+        heading: "text-blue-950",
+        description: "text-blue-700",
+        logic: "border-blue-200 bg-blue-100 text-blue-900",
+        logicBody: "text-blue-800",
+      };
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Procedure</label>
-                <select 
-                  value={procedure} 
-                  onChange={(e) => setProcedure(e.target.value)}
-                  className="w-full bg-gray-55 border border-gray-250 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 rounded-lg px-3 py-2 text-sm outline-none transition cursor-pointer"
+  const completedDocs = getCompletedDocsFromForm(form);
+  const missingDocs = requiredDocs.filter((doc) => !completedDocs.includes(doc));
+
+  return (
+    <section
+      className={`rounded-2xl border p-6 shadow-sm transition-colors duration-300 ${tone.panel}`}
+    >
+      <h2 className={`text-2xl font-bold ${tone.heading}`}>Intake Preview</h2>
+      <p className={`mt-1 text-sm ${tone.description}`}>
+        This preview shows how the case will be interpreted before submission.
+      </p>
+
+      <div className="mt-6 grid gap-4">
+        <PreviewRow label="Case Type" value={form.case_type} />
+        <PreviewRow
+          label="Patient"
+          value={`${form.patient_name}, age ${form.age}`}
+        />
+        <PreviewRow
+          label={isMedication ? "Medicine" : "Procedure"}
+          value={
+            isMedication ? form.requested_medication : form.requested_procedure
+          }
+        />
+        <PreviewRow label="Insurance" value={form.insurance_provider} />
+        <PreviewRow
+          label="Diagnosis Code"
+          value={form.diagnosis_code || "Missing"}
+        />
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-950">
+            Required Documents
+          </p>
+
+          <div className="mt-3 space-y-2">
+            {requiredDocs.map((doc) => {
+              const isDone = completedDocs.includes(doc);
+
+              return (
+                <div
+                  key={doc}
+                  className={`rounded-lg border px-3 py-2 text-sm ${
+                    isDone
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-red-200 bg-red-50 text-red-700"
+                  }`}
                 >
-                  <option value="Lumbar Spine MRI">Lumbar Spine MRI</option>
-                  <option value="Knee MRI">Knee MRI</option>
-                  <option value="Shoulder MRI">Shoulder MRI</option>
-                  <option value="Cervical Spine MRI">Cervical Spine MRI</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Insurance Provider</label>
-                <select 
-                  value={insurance} 
-                  onChange={(e) => setInsurance(e.target.value)}
-                  className="w-full bg-gray-55 border border-gray-250 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 rounded-lg px-3 py-2 text-sm outline-none transition cursor-pointer"
-                >
-                  <option value="BlueCross Mock PPO">BlueCross Mock PPO</option>
-                  <option value="Medicare Advantage Mock Plan">Medicare Advantage Mock Plan</option>
-                  <option value="Medicaid Mock Managed Care">Medicaid Mock Managed Care</option>
-                  <option value="UnitedCare Mock Commercial">UnitedCare Mock Commercial</option>
-                  <option value="Self-Pay / Unverified Insurance">Self-Pay / Unverified Insurance</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Plan type</label>
-                <select 
-                  value={planType} 
-                  onChange={(e) => setPlanType(e.target.value)}
-                  className="w-full bg-gray-55 border border-gray-250 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 rounded-lg px-3 py-2 text-sm outline-none transition cursor-pointer"
-                >
-                  <option value="Commercial PPO">Commercial PPO</option>
-                  <option value="Medicare Advantage Mock Plan">Medicare Advantage Mock Plan</option>
-                  <option value="Medicaid Mock Managed Care">Medicaid Mock Managed Care</option>
-                  <option value="Self-Pay / Unverified Insurance">Self-Pay / Unverified</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Referral Status</label>
-                <select 
-                  value={referralStatus} 
-                  onChange={(e) => setReferralStatus(e.target.value)}
-                  className="w-full bg-gray-55 border border-gray-250 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 rounded-lg px-3 py-2 text-sm outline-none transition cursor-pointer"
-                >
-                  <option value="None">None</option>
-                  <option value="Incomplete">Incomplete</option>
-                  <option value="Justified">Justified</option>
-                  <option value="N/A">N/A</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Checklist of initial attachments */}
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-              <span className="block text-xs font-bold text-gray-500 uppercase mb-2">Initial Documents Attached</span>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer select-none">
-                  <input type="checkbox" checked={eligibilityVerified} onChange={(e) => setEligibilityVerified(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer" />
-                  <span>Eligibility Verified</span>
-                </label>
-                <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer select-none">
-                  <input type="checkbox" checked={physicianOrder} onChange={(e) => setPhysicianOrder(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer" />
-                  <span>Physician Order</span>
-                </label>
-                <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer select-none">
-                  <input type="checkbox" checked={clinicalNotes} onChange={(e) => setClinicalNotes(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer" />
-                  <span>Clinical Notes</span>
-                </label>
-                <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer select-none">
-                  <input type="checkbox" checked={conservativeTx} onChange={(e) => setConservativeTx(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer" />
-                  <span>Conservative Tx</span>
-                </label>
-                <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer select-none">
-                  <input type="checkbox" checked={ptNotes} onChange={(e) => setPtNotes(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer" />
-                  <span>PT Notes</span>
-                </label>
-              </div>
-            </div>
-
-            <button 
-              type="submit" 
-              disabled={loading}
-              className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold py-2.5 px-6 rounded-lg text-sm shadow-xs transition duration-200 flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  Filing Intake Case...
-                </>
-              ) : "Create Intake Record & Run Analysis"}
-            </button>
-          </form>
+                  {isDone ? "✓" : "Missing"} {doc}
+                </div>
+              );
+            })}
           </div>
-          )}
-        </section>
+        </div>
 
-        {/* 6. Saved Patient Queue */}
-        <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <h2 className="text-base font-bold text-gray-950 flex items-center gap-2 mb-4">
-            <Layers className="h-5 w-5 text-blue-600" />
-            Hospital Patient Operations Queue
-          </h2>
-          <div className="overflow-x-auto border border-gray-150 rounded-xl">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold">
-                  <th className="p-3">Patient Name</th>
-                  <th className="p-3">Procedure</th>
-                  <th className="p-3">Insurance Payer</th>
-                  <th className="p-3">Risk Level</th>
-                  <th className="p-3">PA Req.</th>
-                  <th className="p-3">Operational Status</th>
-                  <th className="p-3 text-right">Actions</th>
+        <div className={`rounded-xl border p-4 ${tone.logic}`}>
+          <p className="text-sm font-semibold">
+            Pre-Submission Risk Logic
+          </p>
+          <p className={`mt-2 text-sm ${tone.logicBody}`}>
+            {missingDocs.length === 0
+              ? "All required documents are selected. In the demo view, the AI risk score will display as 0/100."
+              : `${missingDocs.length} required document(s) are missing. The AI dashboard will flag this case before submission.`}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PatientRecord({ patient, patientTab, setPatientTab, onNewIntake }) {
+  const normalized = useMemo(() => normalizePatient(patient), [patient]);
+
+  if (!patient) {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <p className="text-slate-500">No patient selected.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-blue-700">
+              Saved Patient Record
+            </p>
+            <h2 className="mt-1 text-3xl font-bold text-slate-950">
+              {normalized.name}
+            </h2>
+            <p className="mt-2 text-sm text-slate-500">
+              {normalized.request} • {normalized.insurance}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={onNewIntake}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              New Intake
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-4">
+          <ResultCard
+            label="PA Required"
+            value={normalized.priorAuthRequired ? "Yes" : "No"}
+            tone={normalized.priorAuthRequired ? "amber" : "green"}
+          />
+
+          <ResultCard
+            label="AI Risk Score"
+            value={`${normalized.displayRiskScore}/100`}
+            tone={
+              normalized.displayRiskScore === 0
+                ? "green"
+                : normalized.displayRiskScore >= 70
+                  ? "red"
+                  : normalized.displayRiskScore >= 40
+                    ? "amber"
+                    : "green"
+            }
+          />
+
+          <ResultCard
+            label="Denial Risk"
+            value={normalized.displayRiskLabel}
+            tone={
+              normalized.displayRiskLabel === "High"
+                ? "red"
+                : normalized.displayRiskLabel === "Medium"
+                  ? "amber"
+                  : "green"
+            }
+          />
+
+          <ResultCard
+            label="Missing Docs"
+            value={normalized.missingDocuments.length}
+            tone={normalized.missingDocuments.length > 0 ? "red" : "green"}
+          />
+        </div>
+      </div>
+
+      <div className="border-b border-slate-200 px-6">
+        <div className="flex flex-wrap gap-2">
+          <PatientTabButton
+            active={patientTab === "summary"}
+            onClick={() => setPatientTab("summary")}
+          >
+            AI Summary
+          </PatientTabButton>
+
+          <PatientTabButton
+            active={patientTab === "documents"}
+            onClick={() => setPatientTab("documents")}
+          >
+            Documents
+          </PatientTabButton>
+
+          <PatientTabButton
+            active={patientTab === "history"}
+            onClick={() => setPatientTab("history")}
+          >
+            Patient History
+          </PatientTabButton>
+
+          <PatientTabButton
+            active={patientTab === "raw"}
+            onClick={() => setPatientTab("raw")}
+          >
+            Raw Data
+          </PatientTabButton>
+        </div>
+      </div>
+
+      <div className="p-6">
+        {patientTab === "summary" && <AISummaryTab normalized={normalized} />}
+        {patientTab === "documents" && (
+          <DocumentsTab normalized={normalized} patient={patient} />
+        )}
+        {patientTab === "history" && <PatientHistoryTab normalized={normalized} />}
+        {patientTab === "raw" && <RawDataTab patient={patient} />}
+      </div>
+    </section>
+  );
+}
+
+function AISummaryTab({ normalized }) {
+  return (
+    <div className="grid gap-5 lg:grid-cols-2">
+      <div className="space-y-5">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+          <h3 className="font-semibold text-slate-950">Clinical Summary</h3>
+          <p className="mt-2 text-sm text-slate-700">{normalized.symptoms}</p>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="font-semibold text-slate-950">AI Risk Score</h3>
+            <span className="text-sm text-slate-500">
+              {normalized.displayRiskScore}/100
+            </span>
+          </div>
+
+          <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+            <div
+              className={`h-full rounded-full ${
+                normalized.displayRiskScore === 0
+                  ? "bg-emerald-500"
+                  : normalized.displayRiskScore >= 70
+                    ? "bg-red-500"
+                    : normalized.displayRiskScore >= 40
+                      ? "bg-amber-500"
+                      : "bg-blue-600"
+              }`}
+              style={{
+                width: `${normalized.displayRiskScore}%`,
+              }}
+            />
+          </div>
+
+          {normalized.displayRiskScore === 0 ? (
+            <p className="mt-3 text-sm text-emerald-700">
+              All required documentation appears complete. The demo risk score
+              is reduced to 0/100.
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-slate-600">
+              Risk is based on missing documentation, payer friction, and
+              authorization readiness.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+          <h3 className="font-semibold text-slate-950">Missing Documents</h3>
+
+          {normalized.missingDocuments.length > 0 ? (
+            <ul className="mt-3 space-y-2">
+              {normalized.missingDocuments.map((doc, index) => (
+                <li
+                  key={index}
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                >
+                  {doc}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              No missing documents detected.
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+          <h3 className="font-semibold text-blue-900">
+            Staff Recommendation
+          </h3>
+          <p className="mt-2 text-sm text-blue-800">
+            {normalized.missingDocuments.length === 0
+              ? "Proceed with authorization submission. Documentation appears complete for this demo workflow."
+              : normalized.recommendedAction ||
+                "Request missing documentation before submitting prior authorization."}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+          <h3 className="font-semibold text-slate-950">
+            Payer Policy Summary
+          </h3>
+          <p className="mt-2 text-sm text-slate-700">
+            {normalized.payerPolicySummary ||
+              "Prior authorization may be required. Supporting documentation should show medical necessity, diagnosis code, payer-specific requirements, and relevant clinical history."}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocumentsTab({ normalized, patient }) {
+  const uploadedDocs = getUploadedDocsFromPatient(patient, normalized);
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-2">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+        <h3 className="font-semibold text-slate-950">Uploaded Documents</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          These are the documents the staff has already collected.
+        </p>
+
+        <div className="mt-4 space-y-2">
+          {uploadedDocs.length > 0 ? (
+            uploadedDocs.map((doc) => (
+              <div
+                key={doc}
+                className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+              >
+                ✓ {doc}
+              </div>
+            ))
+          ) : (
+            <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
+              No uploaded documents were detected.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+        <h3 className="font-semibold text-slate-950">Required / Missing</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Items below should be collected before submission.
+        </p>
+
+        <div className="mt-4 space-y-2">
+          {normalized.missingDocuments.length > 0 ? (
+            normalized.missingDocuments.map((doc) => (
+              <div
+                key={doc}
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+              >
+                Missing {doc}
+              </div>
+            ))
+          ) : (
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              All required documents appear complete.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PatientHistoryTab({ normalized }) {
+  const historyItems = [
+    {
+      title: "Patient intake created",
+      detail: `${normalized.name} submitted an authorization request for ${normalized.request}.`,
+    },
+    {
+      title: "Insurance checked",
+      detail: `${normalized.insurance} was reviewed using mock eligibility and payer rules.`,
+    },
+    {
+      title: "AI analysis completed",
+      detail:
+        normalized.missingDocuments.length === 0
+          ? "AI marked documentation as complete and reduced displayed risk score to 0/100."
+          : `AI detected ${normalized.missingDocuments.length} missing document(s).`,
+    },
+    {
+      title: "Staff action generated",
+      detail:
+        normalized.missingDocuments.length === 0
+          ? "Recommended action: proceed with submission."
+          : "Recommended action: request missing documents before submission.",
+    },
+  ];
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+      <h3 className="font-semibold text-slate-950">Patient History</h3>
+      <p className="mt-1 text-sm text-slate-500">
+        Mock timeline showing what happened in this authorization workflow.
+      </p>
+
+      <div className="mt-5 space-y-4">
+        {historyItems.map((item, index) => (
+          <div key={index} className="flex gap-4">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+              {index + 1}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="font-semibold text-slate-950">{item.title}</p>
+              <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RawDataTab({ patient }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-950 p-5">
+      <h3 className="font-semibold text-white">Structured JSON Response</h3>
+      <pre className="mt-4 max-h-[500px] overflow-auto rounded-lg bg-black p-4 text-xs text-emerald-300">
+        {JSON.stringify(patient, null, 2)}
+      </pre>
+    </div>
+  );
+}
+
+function OperationsQueue({ patients, openExistingPatient }) {
+  return (
+    <section className="mx-auto max-w-7xl px-6 py-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-2xl font-bold text-slate-950">
+          Saved Patient Queue
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Click a patient to hide the intake form and open a dedicated patient
+          record with tabs.
+        </p>
+
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="p-3">Patient</th>
+                <th className="p-3">Request</th>
+                <th className="p-3">Insurance</th>
+                <th className="p-3">AI Score</th>
+                <th className="p-3">Risk</th>
+                <th className="p-3">Status</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {patients.length === 0 ? (
+                <tr>
+                  <td className="p-4 text-slate-500" colSpan="6">
+                    No patients loaded yet.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {patients.map((p) => {
-                  const isSelected = selectedPatient && selectedPatient.id === p.id;
-                  const risk = p.analysis ? p.analysis.initial_denial_risk : "Low";
-                  
+              ) : (
+                patients.map((patient) => {
+                  const normalized = normalizePatient(patient);
+
                   return (
-                    <tr 
-                      key={p.id} 
-                      onClick={() => handlePatientSelect(p)}
-                      className={`border-b border-gray-150 hover:bg-blue-50/35 cursor-pointer transition ${
-                        isSelected ? 'bg-blue-50/70 border-l-4 border-l-blue-600 font-semibold' : ''
-                      }`}
+                    <tr
+                      key={patient.id}
+                      onClick={() => openExistingPatient(patient)}
+                      className="cursor-pointer border-t border-slate-200 hover:bg-slate-50"
                     >
-                      <td className="p-3 text-gray-900 font-bold">{p.name} (Age {p.age})</td>
-                      <td className="p-3 text-gray-700">{p.procedure_name}</td>
-                      <td className="p-3 text-gray-700">{p.provider}</td>
+                      <td className="p-3 font-medium text-slate-900">
+                        {normalized.name}
+                      </td>
+                      <td className="p-3">{normalized.request}</td>
+                      <td className="p-3">{normalized.insurance}</td>
+                      <td className="p-3">{normalized.displayRiskScore}/100</td>
+                      <td className="p-3">{normalized.displayRiskLabel}</td>
                       <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                          risk === 'High' ? 'bg-red-50 text-red-700 border border-red-200' :
-                          risk === 'Medium' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                          'bg-emerald-50 text-emerald-700 border border-emerald-255'
-                        }`}>
-                          {risk}
-                        </span>
-                      </td>
-                      <td className="p-3 text-gray-700">
-                        {p.analysis && p.analysis.prior_authorization_required ? "Yes" : "No"}
-                      </td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${
-                          p.status === 'Ready to Submit' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                          p.status === 'High Risk' ? 'bg-red-50 text-red-700 border border-red-100' :
-                          p.status === 'Needs Eligibility Verification' ? 'bg-indigo-50 text-indigo-700 border border-indigo-150' :
-                          'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}>
-                          {p.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right">
-                        <button className="text-blue-600 font-bold hover:underline flex items-center gap-1.5 ml-auto text-[11px]">
-                          Select <ArrowRight className="h-3 w-3" />
-                        </button>
+                        {normalized.status || "Pending Review"}
                       </td>
                     </tr>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {selectedPatient && (
-          <div className="space-y-6">
-
-            {/* 7. Selected Patient Details */}
-            <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-150 pb-4 mb-4 gap-2">
-                <div>
-                  <h2 className="text-lg font-extrabold text-gray-900">
-                    Operations Summary: {selectedPatient.name}
-                  </h2>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    CPT Procedure: <strong className="text-gray-700">{selectedPatient.procedure_name}</strong> • Symptom Duration: <strong className="text-gray-700">{selectedPatient.symptoms_duration_weeks} Weeks</strong>
-                  </p>
-                </div>
-                <div className="text-xs text-gray-400 font-mono">
-                  Database Case Reference: ID-{selectedPatient.id}
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs text-gray-700">
-                <div>
-                  <span className="block text-gray-400 font-bold uppercase tracking-wider text-[10px]">Patient Age</span>
-                  <span className="text-sm font-bold text-gray-800 mt-0.5 block">{selectedPatient.age} Years Old</span>
-                </div>
-                <div>
-                  <span className="block text-gray-400 font-bold uppercase tracking-wider text-[10px]">Payer Provider</span>
-                  <span className="text-sm font-bold text-gray-800 mt-0.5 block">{selectedPatient.provider} ({selectedPatient.plan_type})</span>
-                </div>
-                <div>
-                  <span className="block text-gray-400 font-bold uppercase tracking-wider text-[10px]">Clinic Symptoms Notes</span>
-                  <span className="text-sm block text-gray-800 mt-0.5 font-medium italic">"{selectedPatient.symptoms}"</span>
-                </div>
-              </div>
-            </section>
-
-            {/* 8. Insurance and Payer Policy Analysis */}
-            <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">
-                Insurance Coverage & Policy Grounding Rules
-              </h3>
-              
-              {selectedPatient.analysis ? (
-                <div className="space-y-4">
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                    <div className="flex items-center gap-2 text-blue-700 font-bold text-xs mb-2">
-                      <FileCheck className="h-4 w-4" />
-                      <span>{selectedPatient.analysis.policy_reference || "Mock Coverage Reference"}</span>
-                    </div>
-                    <p className="text-xs text-gray-700 leading-relaxed font-medium">
-                      {selectedPatient.analysis.payer_policy_summary}
-                    </p>
-                  </div>
-                  <div className="bg-blue-50/50 border border-blue-200/50 rounded-xl p-3.5 flex items-start gap-2.5">
-                    <Database className="h-4.5 w-4.5 text-blue-600 shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-blue-800 leading-relaxed">
-                      <strong>RAG Vector Ingestion Alert:</strong> Payer policy parameters are retrieved from the local configuration index. Future production version: Payer medical necessity bulletins can be loaded dynamically into ChromaDB and retrieved utilizing LangChain's vector search algorithms.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xs text-gray-400 italic">No insurance analysis logs saved for this patient.</div>
+                })
               )}
-            </section>
-
-            {/* 9. AI Operational Risk Analysis */}
-            <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-4">
-                Prior Authorization Operational Risk Evaluation
-              </h3>
-
-              {selectedPatient.analysis ? (
-                <div className="space-y-6">
-                  
-                  {/* Gauge Bar */}
-                  <div>
-                    <div className="flex justify-between items-center text-xs font-bold mb-1.5">
-                      <span className="text-gray-500">Intake Audit Denial/Delay Risk Score</span>
-                      <span className={`text-sm ${
-                        selectedPatient.analysis.initial_risk_score >= 66 ? 'text-red-600' :
-                        selectedPatient.analysis.initial_risk_score >= 31 ? 'text-amber-600' :
-                        'text-emerald-600'
-                      }`}>
-                        {selectedPatient.analysis.initial_risk_score} / 100 ({selectedPatient.analysis.initial_denial_risk})
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-3">
-                      <div 
-                        className={`h-3 rounded-full transition-all duration-500 ${
-                          selectedPatient.analysis.initial_risk_score >= 66 ? 'bg-red-505 bg-red-500' :
-                          selectedPatient.analysis.initial_risk_score >= 31 ? 'bg-amber-500' :
-                          'bg-emerald-500'
-                        }`}
-                        style={{ width: `${selectedPatient.analysis.initial_risk_score}%` }}
-                      ></div>
-                    </div>
-                  </div>
-
-                  {/* Active Risk Factors */}
-                  <div>
-                    <span className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2.5">
-                      Identified Denial/Delay Risk Factors ({selectedPatient.analysis.risk_factors.length})
-                    </span>
-                    <div className="space-y-3">
-                      {selectedPatient.analysis.risk_factors.map((factor, idx) => (
-                        <div key={idx} className="bg-gray-55 border border-gray-200 rounded-xl p-3.5 text-xs">
-                          <div className="flex justify-between items-center font-bold text-gray-900 border-b border-gray-200 pb-1.5 mb-2">
-                            <span>{factor.factor_name}</span>
-                            <span className="text-red-600">+{factor.points_added} Points</span>
-                          </div>
-                          <p className="text-gray-700 leading-relaxed font-medium">
-                            <strong>Reason:</strong> {factor.reason}
-                          </p>
-                          <p className="text-blue-700 leading-relaxed font-semibold mt-1 flex items-center gap-1">
-                            <strong>Action needed:</strong> {factor.recommended_fix}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                </div>
-              ) : (
-                <div className="text-xs text-gray-400 italic">Audit calculations not populated.</div>
-              )}
-            </section>
-
-            {/* 10. Missing Documents Checklist */}
-            <section className="bg-white border-2 border-blue-200 rounded-2xl p-6 shadow-sm">
-              <div className="border-b border-gray-150 pb-3 mb-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-bold text-gray-950">
-                    Interactive Clinical Documentation Audit Checklist
-                  </h3>
-                  <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-600 text-white px-2.5 py-1 rounded-full">Live AI Scoring</span>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  ✦ Check boxes when documents are received — the AI risk score recalculates instantly.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {[
-                  { label: "Insurance Card", key: "insurance_card" },
-                  { label: "Eligibility Verification", key: "eligibility_verification" },
-                  { label: "Physician Order", key: "physician_order" },
-                  { label: "Diagnosis Code Document", key: "diagnosis_code_doc" },
-                  { label: "Clinical Consult Notes", key: "clinical_notes" },
-                  { label: "Referral Justification Letter", key: "referral" },
-                  { label: "Conservative Treatment History", key: "conservative_treatment" },
-                  { label: "Physical Therapy Notes", key: "physical_therapy_notes" },
-                  { label: "Payer Prior Auth Form", key: "prior_auth_form" },
-                  { label: "Payer Policy Reference", key: "payer_policy_reference" }
-                ].map((doc) => {
-                  const isChecked = selectedPatient.documents[doc.key];
-                  
-                  return (
-                    <label 
-                      key={doc.key} 
-                      className={`flex items-center justify-between p-3 rounded-xl border text-xs cursor-pointer select-none transition ${
-                        isChecked 
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-850 font-bold' 
-                          : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2">
-                        {isChecked ? (
-                          <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600 shrink-0" />
-                        ) : (
-                          <XCircle className="h-4.5 w-4.5 text-gray-400 shrink-0" />
-                        )}
-                        <span>{doc.label}</span>
-                      </span>
-                      <input 
-                        type="checkbox" 
-                        checked={isChecked}
-                        onChange={() => handleDocumentToggle(doc.key, isChecked)}
-                        className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* 11. Staff Action Plan */}
-            <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-3">
-                Actionable Staff Resolution Plan
-              </h3>
-              {selectedPatient.analysis ? (
-                <ol className="list-decimal pl-5 space-y-2.5 text-xs text-gray-800">
-                  {selectedPatient.analysis.recommended_actions.map((act, i) => (
-                    <li key={i} className="font-semibold leading-relaxed">
-                      {act}
-                    </li>
-                  ))}
-                  <li className="text-amber-700 font-bold leading-relaxed list-none border-t border-amber-100 pt-2 mt-2">
-                    * Final Human verification is mandatory before clinical submission.
-                  </li>
-                </ol>
-              ) : (
-                <div className="text-xs text-gray-400 italic">No recommendations loaded.</div>
-              )}
-            </section>
-
-            {/* 12. Operational Impact / Risk Averted */}
-            <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-4">
-                Operational Impact & Denial Averted Metrics
-              </h3>
-              
-              {selectedPatient.analysis ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    
-                    {/* Before vs After */}
-                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col justify-between">
-                      <span className="block text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">Denial Risk Audit Score Impact</span>
-                      <div className="flex items-center justify-around">
-                        <div className="text-center">
-                          <span className="text-xs text-gray-500 font-semibold uppercase">Initial Score</span>
-                          <span className="text-2xl font-extrabold text-red-600 mt-1 block">
-                            {selectedPatient.analysis.initial_risk_score}
-                          </span>
-                        </div>
-                        <div className="p-1.5 bg-blue-100 text-blue-700 rounded-full">
-                          <ArrowRight className="h-5 w-5" />
-                        </div>
-                        <div className="text-center">
-                          <span className="text-xs text-gray-500 font-semibold uppercase">Projected Score</span>
-                          <span className="text-2xl font-extrabold text-emerald-600 mt-1 block">
-                            {selectedPatient.analysis.projected_risk_after_actions}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Delay Days & Time Averted */}
-                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3.5 text-xs text-gray-700">
-                      <div className="flex justify-between items-center font-semibold border-b border-gray-200 pb-1.5">
-                        <span>Denial Risk Reduced</span>
-                        <span className="text-emerald-700 font-bold text-sm">-{selectedPatient.analysis.estimated_risk_reduction_percent} Points</span>
-                      </div>
-                      <div className="flex justify-between items-center font-semibold border-b border-gray-200 pb-1.5">
-                        <span>Estimated Administrative Time Saved</span>
-                        <span className="text-blue-700 font-bold">{selectedPatient.analysis.estimated_time_saved_minutes} Minutes</span>
-                      </div>
-                      <div className="flex justify-between items-center font-semibold">
-                        <span>Payer Scheduling Delays Avoided</span>
-                        <span className="text-indigo-700 font-bold">{selectedPatient.analysis.estimated_delay_avoided_days}</span>
-                      </div>
-                    </div>
-
-                  </div>
-                  <div className="p-3 bg-emerald-50 border border-emerald-150 rounded-xl text-xs font-semibold text-emerald-850">
-                    <strong>Impact summary:</strong> {selectedPatient.analysis.risk_averted_summary}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xs text-gray-400 italic">No impact metrics evaluated.</div>
-              )}
-            </section>
-
-          </div>
-        )}
-
-        {/* 13. Integration Readiness Section */}
-        <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="text-base font-extrabold text-gray-950 flex items-center gap-2 mb-3">
-            <Database className="h-5 w-5 text-blue-600" />
-            Hospital EHR System Integration Architecture
-          </h3>
-          <p className="text-xs text-gray-600 leading-relaxed mb-4">
-            AuthFlow AI is designed as a modular plug-and-play middleware. It queries payer coverage guidelines asynchronously, parses documentation checklists, and updates diagnostic records without requiring you to replace your existing workflows.
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-gray-800 mb-6">
-            <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-              <strong className="block text-gray-900 mb-1">Supported Standards:</strong>
-              <ul className="list-disc pl-4 space-y-1 text-gray-700">
-                <li>FHIR-style API integration (Fast Healthcare Interoperability Resources)</li>
-                <li>HL7-style electronic data transfer interfaces</li>
-                <li>API endpoints supporting direct patient intake JSON payloads</li>
-                <li>Secure CSV batch data imports and exports</li>
-              </ul>
-            </div>
-            <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-              <strong className="block text-gray-900 mb-1">Operational Event Hooks:</strong>
-              <ul className="list-disc pl-4 space-y-1 text-gray-700">
-                <li>Automated Webhooks transmitting denial risk alerts</li>
-                <li>Real-time database updates logs</li>
-                <li>Human Review checklist verification triggers</li>
-                <li>Pre-visit clearance checks before scheduling</li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="bg-gray-100/80 rounded-xl p-4 text-center border border-gray-200">
-            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Integration Data Flow Diagram</div>
-            <div className="flex flex-col sm:flex-row justify-center items-center gap-2 text-xs font-semibold text-gray-700">
-              <div className="bg-white px-3.5 py-2 border border-gray-200 rounded-lg shadow-xs">Existing Hospital EHR</div>
-              <ArrowRight className="h-4 w-4 text-blue-600 rotate-90 sm:rotate-0" />
-              <div className="bg-blue-600 px-3.5 py-2 text-white border border-blue-700 rounded-lg shadow-xs">AuthFlow API Layer</div>
-              <ArrowRight className="h-4 w-4 text-blue-600 rotate-90 sm:rotate-0" />
-              <div className="bg-white px-3.5 py-2 border border-gray-200 rounded-lg shadow-xs">AI/RAG Policy Engine</div>
-              <ArrowRight className="h-4 w-4 text-blue-600 rotate-90 sm:rotate-0" />
-              <div className="bg-gray-250 px-3.5 py-2 border border-gray-300 rounded-lg shadow-xs">Checklist & Action Plan</div>
-            </div>
-          </div>
-        </section>
-
-        {/* 14. Medicaid Support Section */}
-        <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="text-base font-extrabold text-gray-950 flex items-center gap-2 mb-3">
-            <Shield className="h-5 w-5 text-blue-600" />
-            Medicaid & Managed Care Support
-          </h3>
-          <div className="text-xs text-gray-600 space-y-3 leading-relaxed">
-            <p>
-              Medicaid rules and prior authorization requirements vary significantly by state and managed care organization (MCO). AuthFlow AI provides custom mock templates mapped to Medicaid criteria to ensure compliance.
-            </p>
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-              <strong className="block text-gray-900 text-xs mb-1.5">Mock Medicaid Policy Guidelines (MED-SHOULDER-2026A):</strong>
-              <ul className="list-disc pl-4 space-y-1 text-gray-700 text-[11px]">
-                <li>Prior authorization is mandatory for all high-cost joint MRI procedures.</li>
-                <li>Pre-submission eligibility verification is required on the state Medicaid database.</li>
-                <li>Must confirm assignment to the correct Managed Care Organization.</li>
-                <li>Signed physician order, diagnosis codes, and clinical progress notes must be attached.</li>
-                <li>Requires human review confirmation before authorization packet is submitted.</li>
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        {/* 15. Value Proposition */}
-        <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="text-base font-extrabold text-gray-950 flex items-center gap-2 mb-3">
-            <Sparkles className="h-5 w-5 text-blue-600" />
-            Why Hospitals Would Use AuthFlow AI
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-gray-700 leading-relaxed font-semibold">
-            <div className="flex items-start gap-2.5">
-              <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-              <span>Reduces avoidable prior authorization delay times by catching document gaps early.</span>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-              <span>Detects missing clinical order, diagnosis, and notes details prior to billing submittal.</span>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-              <span>Helps prevent claim denials caused by unverified or inactive insurance coverage.</span>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-              <span>Saves administrative staff time by summarizing policy documents into actionable checklists.</span>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-              <span>Protects patients from care delays and unexpected billing liabilities.</span>
-            </div>
-            <div className="flex items-start gap-2.5">
-              <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-              <span>Adds an AI intelligence layer without replacing your existing hospital database infrastructures.</span>
-            </div>
-          </div>
-        </section>
-
-        {/* 16. Audit Log and Human Review Section */}
-        <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="text-base font-extrabold text-gray-950 flex items-center gap-2 mb-4">
-            <FileText className="h-5 w-5 text-blue-600" />
-            Audit Trail Logs & Human Verification Log
-          </h3>
-
-          <div className="space-y-4">
-            
-            {/* selected patient audit logs */}
-            {selectedPatient && (
-              <div>
-                <span className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                  Chronological Operations Log: {selectedPatient.name}
-                </span>
-                <div className="bg-gray-55 border border-gray-200 rounded-xl p-3 max-h-[160px] overflow-y-auto space-y-2">
-                  {auditLogs.filter(log => log.patient_id === selectedPatient.id).length > 0 ? (
-                    auditLogs
-                      .filter(log => log.patient_id === selectedPatient.id)
-                      .map((log) => (
-                        <div key={log.id} className="text-xs leading-relaxed text-gray-700 flex justify-between gap-4 py-1 border-b border-gray-150 last:border-0">
-                          <div>
-                            <strong className="text-gray-900 uppercase text-[9px] bg-gray-200 px-1.5 py-0.5 rounded mr-2 inline-block">
-                              {log.action}
-                            </strong>
-                            <span>{log.details}</span>
-                          </div>
-                          <span className="text-gray-400 shrink-0 font-mono text-[10px]">
-                            {new Date(log.timestamp).toLocaleTimeString()}
-                          </span>
-                        </div>
-                      ))
-                  ) : (
-                    <div className="text-xs text-gray-400 italic">No audit trail entries for this patient.</div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Global system disclaimers */}
-            <div className="border-t border-gray-200 pt-4 text-center">
-              <p className="text-[11px] text-gray-400">
-                AuthFlow AI Operational Verification Log System • Active Database Connection: SQLite (mock_cases.db)
-              </p>
-              <div className="p-3 bg-red-50/50 border border-red-200/50 rounded-xl text-[10px] text-gray-500 mt-2 leading-relaxed">
-                <strong>Safety Verification Disclaimer:</strong> {selectedPatient?.analysis?.disclaimer || "AuthFlow AI does not provide medical advice, determine final insurance coverage, guarantee payer approval, or replace staff review."}
-              </div>
-            </div>
-
-          </div>
-        </section>
-
+            </tbody>
+          </table>
+        </div>
       </div>
+    </section>
+  );
+}
 
-      <footer className="text-center text-xs text-gray-400 mt-12">
-        AuthFlow AI Operations Dashboard Prototype • Synthetic Healthcare Operations Demo
-      </footer>
+function ArchitectureSection() {
+  return (
+    <section className="mx-auto max-w-7xl px-6 py-10">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-2xl font-bold text-slate-950">
+          System Architecture
+        </h2>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-6">
+          <ArchitectureBox title="Next.js" subtitle="Patient Intake UI" />
+          <ArchitectureBox title="FastAPI" subtitle="Backend API" />
+          <ArchitectureBox title="SQLite" subtitle="Mock Case Storage" />
+          <ArchitectureBox title="LangGraph" subtitle="Workflow Agent" />
+          <ArchitectureBox title="ChromaDB" subtitle="Policy Retrieval" />
+          <ArchitectureBox title="OpenAI" subtitle="Structured AI Output" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function normalizePatient(patient) {
+  const analysis = patient?.analysis || {};
+  const request =
+    patient?.procedure_name ||
+    patient?.requested_procedure ||
+    "Authorization Request";
+
+  const caseType =
+    request.toLowerCase().includes("medication") ||
+    request.toLowerCase().includes("humira") ||
+    request.toLowerCase().includes("ozempic") ||
+    request.toLowerCase().includes("wegovy") ||
+    request.toLowerCase().includes("mounjaro")
+      ? "Medication"
+      : "Imaging";
+
+  const missingDocuments = analysis?.missing_documents || [];
+
+  const rawRiskScore =
+    analysis?.initial_risk_score ?? analysis?.risk_score ?? 45;
+
+  const displayRiskScore = missingDocuments.length === 0 ? 0 : rawRiskScore;
+
+  const rawRiskLabel =
+    analysis?.initial_denial_risk || analysis?.denial_risk || "Medium";
+
+  const displayRiskLabel = missingDocuments.length === 0 ? "Low" : rawRiskLabel;
+
+  return {
+    id: patient?.id,
+    name: patient?.name || patient?.patient_name || "Unknown Patient",
+    request,
+    caseType,
+    insurance:
+      patient?.provider || patient?.insurance_provider || "Unknown Insurance",
+    symptoms: patient?.symptoms || "No symptoms available.",
+    status: patient?.status || "Pending Review",
+    analysis,
+    missingDocuments,
+    rawRiskScore,
+    displayRiskScore,
+    rawRiskLabel,
+    displayRiskLabel,
+    priorAuthRequired:
+      analysis?.prior_authorization_required === undefined
+        ? true
+        : analysis?.prior_authorization_required,
+    recommendedAction: analysis?.recommended_action,
+    payerPolicySummary: analysis?.payer_policy_summary,
+  };
+}
+
+function getCompletedDocsFromForm(form) {
+  const docs = [];
+
+  if (form.eligibility_verification) docs.push("Eligibility Verified");
+  if (form.physician_order) {
+    docs.push("Physician Order");
+    docs.push("Prescription / Physician Order");
+  }
+  if (form.clinical_notes) docs.push("Clinical Notes");
+  if (form.diagnosis_code) docs.push("Diagnosis Code");
+
+  if (form.case_type === "Medication") {
+    if (form.medication_history) {
+      docs.push("Medication History / Failed Alternatives");
+    }
+    if (form.formulary_exception) {
+      docs.push("Formulary Exception / Step Therapy Notes");
+    }
+  } else {
+    if (form.conservative_treatment) docs.push("Conservative Treatment");
+    if (form.physical_therapy_notes) docs.push("Physical Therapy Notes");
+  }
+
+  return docs;
+}
+
+function getUploadedDocsFromPatient(patient, normalized) {
+  const analysis = patient?.analysis || {};
+  const missing = normalized.missingDocuments || [];
+  const required =
+    requiredDocsByCaseType[normalized.caseType] || requiredDocsByCaseType.Imaging;
+
+  const uploadedFromRequired = required.filter((doc) => {
+    return !missing.some((missingDoc) =>
+      String(missingDoc).toLowerCase().includes(doc.toLowerCase())
+    );
+  });
+
+  const backendDocs = analysis?.documents_provided || analysis?.provided_documents;
+
+  if (Array.isArray(backendDocs)) {
+    return [...new Set([...uploadedFromRequired, ...backendDocs])];
+  }
+
+  return uploadedFromRequired;
+}
+
+function MetricCard({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-bold text-slate-950">{value ?? 0}</p>
+    </div>
+  );
+}
+
+function WorkflowStep({ number, title }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+        {number}
+      </div>
+      <p className="font-semibold text-slate-900">{title}</p>
+    </div>
+  );
+}
+
+function PreviewRow({ label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function Input({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder = "",
+  required = true,
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-medium text-slate-700">
+        {label}
+      </span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        required={required}
+        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      />
+    </label>
+  );
+}
+
+function Select({ label, value, onChange, options }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-medium text-slate-700">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      >
+        {options.map((option) => (
+          <option key={option}>{option}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function Checkbox({ label, checked, onChange }) {
+  return (
+    <label className="flex items-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4"
+      />
+      {label}
+    </label>
+  );
+}
+
+function ResultCard({ label, value, tone }) {
+  const styles = {
+    green: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-800",
+    red: "border-red-200 bg-red-50 text-red-800",
+  };
+
+  return (
+    <div className={`rounded-xl border p-5 ${styles[tone] || styles.green}`}>
+      <p className="text-sm opacity-80">{label}</p>
+      <p className="mt-2 text-2xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function PatientTabButton({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`border-b-2 px-4 py-3 text-sm font-semibold ${
+        active
+          ? "border-blue-600 text-blue-700"
+          : "border-transparent text-slate-500 hover:text-slate-900"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ArchitectureBox({ title, subtitle }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
+      <p className="font-semibold text-slate-900">{title}</p>
+      <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
     </div>
   );
 }
