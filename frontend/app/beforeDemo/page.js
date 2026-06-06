@@ -42,32 +42,36 @@ export default function BeforePage() {
           <span>|</span>
           <span style={{ color: "#ffcc00" }}>! 14 pending items</span>
           <span style={{ marginLeft: "8px", borderLeft: "1px solid rgba(255,255,255,0.3)", paddingLeft: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.7)" }}>Traditional</span>
-            <a
-              href="/"
+            <span style={{ fontSize: "11px", fontWeight: "bold", color: "white" }}>Traditional</span>
+            <button
+              onClick={() => window.location.href = "/"}
               style={{
+                position: "relative",
                 display: "inline-flex",
                 alignItems: "center",
-                background: "rgba(255,255,255,0.2)",
+                width: "52px",
+                height: "28px",
                 borderRadius: "999px",
-                padding: "2px 3px",
-                width: "40px",
-                textDecoration: "none",
-                position: "relative",
+                backgroundColor: "rgba(255,255,255,0.3)",
+                border: "none",
+                cursor: "pointer",
+                padding: "0",
+                transition: "background-color 0.2s",
               }}
               title="Switch to AuthFlow AI"
             >
               <span style={{
-                display: "inline-block",
-                width: "16px",
-                height: "16px",
+                position: "absolute",
+                left: "4px",
+                width: "20px",
+                height: "20px",
                 borderRadius: "50%",
-                background: "white",
-                opacity: 0.5,
-                marginLeft: "0px",
+                backgroundColor: "white",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                transition: "transform 0.2s",
               }} />
-            </a>
-            <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.5)" }}>AuthFlow AI</span>
+            </button>
+            <span style={{ fontSize: "11px", fontWeight: "bold", color: "rgba(255,255,255,0.5)" }}>AuthFlow AI</span>
           </span>
         </div>
       </div>
