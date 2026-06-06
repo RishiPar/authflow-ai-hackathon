@@ -110,6 +110,46 @@ export default function Page() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function buildPatientPayload(sourceForm) {
+    const requestedProcedure =
+      sourceForm.case_type === "Medication"
+        ? `Medication Prior Authorization - ${sourceForm.requested_medication}`
+        : sourceForm.requested_procedure;
+
+    return {
+      patient_name: sourceForm.patient_name,
+      age: Number(sourceForm.age),
+      symptoms:
+        sourceForm.case_type === "Medication"
+          ? `${sourceForm.symptoms}. Requested medication: ${sourceForm.requested_medication}.`
+          : sourceForm.symptoms,
+      symptoms_duration_weeks: Number(sourceForm.symptoms_duration_weeks),
+      requested_procedure: requestedProcedure,
+      insurance_provider: sourceForm.insurance_provider,
+      insurance_plan_type: sourceForm.insurance_plan_type,
+      referral_status: sourceForm.referral_status,
+      diagnosis_code: sourceForm.diagnosis_code || null,
+      documents_provided: {
+        insurance_card: true,
+        eligibility_verification: sourceForm.eligibility_verification,
+        physician_order: sourceForm.physician_order,
+        diagnosis_code_doc: Boolean(sourceForm.diagnosis_code),
+        clinical_notes: sourceForm.clinical_notes,
+        referral: sourceForm.referral_status === "Justified",
+        conservative_treatment:
+          sourceForm.case_type === "Medication"
+            ? sourceForm.medication_history
+            : sourceForm.conservative_treatment,
+        physical_therapy_notes:
+          sourceForm.case_type === "Medication"
+            ? sourceForm.formulary_exception
+            : sourceForm.physical_therapy_notes,
+        prior_auth_form: false,
+        payer_policy_reference: false,
+      },
+    };
+  }
+
   function startNewIntake() {
     setWorkspaceMode("intake");
     setPatientTab("summary");
@@ -143,39 +183,7 @@ export default function Page() {
     setLoading(true);
     setError("");
 
-    const requestedProcedure =
-      form.case_type === "Medication"
-        ? `Medication Prior Authorization - ${form.requested_medication}`
-        : form.requested_procedure;
-
-    const payload = {
-      patient_name: form.patient_name,
-      age: Number(form.age),
-      symptoms:
-        form.case_type === "Medication"
-          ? `${form.symptoms}. Requested medication: ${form.requested_medication}.`
-          : form.symptoms,
-      symptoms_duration_weeks: Number(form.symptoms_duration_weeks),
-      requested_procedure: requestedProcedure,
-      insurance_provider: form.insurance_provider,
-      insurance_plan_type: form.insurance_plan_type,
-      referral_status: form.referral_status,
-      diagnosis_code: form.diagnosis_code || null,
-      documents_provided: {
-        insurance_card: true,
-        eligibility_verification: form.eligibility_verification,
-        physician_order: form.physician_order,
-        diagnosis_code_doc: Boolean(form.diagnosis_code),
-        clinical_notes: form.clinical_notes,
-        referral: form.referral_status === "Justified",
-        conservative_treatment:
-          form.case_type === "Medication" ? form.medication_history : form.conservative_treatment,
-        physical_therapy_notes:
-          form.case_type === "Medication" ? form.formulary_exception : form.physical_therapy_notes,
-        prior_auth_form: false,
-        payer_policy_reference: false,
-      },
-    };
+    const payload = buildPatientPayload(form);
 
     try {
       const res = await fetch(`${API_BASE}/intake`, {
@@ -194,6 +202,53 @@ export default function Page() {
       setError("Could not submit intake. Make sure the backend is running.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function updateExistingPatient(patientId, editedForm) {
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch(`${API_BASE}/patients/${patientId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildPatientPayload(editedForm)),
+      });
+      if (!res.ok) throw new Error("Failed to update patient.");
+      const updatedPatient = await res.json();
+      setSelectedPatient(updatedPatient);
+      setWorkspaceMode("patient");
+      await loadDashboard();
+      return true;
+    } catch {
+      setError("Could not update patient. Make sure the backend is running.");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deletePatient(patientId) {
+    const shouldDelete = window.confirm("Delete this saved patient profile?");
+    if (!shouldDelete) return;
+
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/patients/${patientId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete patient.");
+
+      if (selectedPatient?.id === patientId) {
+        setSelectedPatient(null);
+        setWorkspaceMode("intake");
+        setPatientTab("summary");
+      }
+
+      await loadDashboard();
+    } catch {
+      setError("Could not delete patient. Make sure the backend is running.");
     }
   }
 
@@ -243,11 +298,23 @@ export default function Page() {
             <IntakePreview form={form} />
           </section>
         ) : (
-          <PatientRecord patient={selectedPatient} patientTab={patientTab} setPatientTab={setPatientTab} onNewIntake={startNewIntake} />
+          <PatientRecord
+            patient={selectedPatient}
+            patientTab={patientTab}
+            setPatientTab={setPatientTab}
+            onNewIntake={startNewIntake}
+            onSavePatient={updateExistingPatient}
+            onDeletePatient={deletePatient}
+            saving={loading}
+          />
         )}
       </section>
 
-      <OperationsQueue patients={patients} openExistingPatient={openExistingPatient} />
+      <OperationsQueue
+        patients={patients}
+        openExistingPatient={openExistingPatient}
+        onDeletePatient={deletePatient}
+      />
       <ArchitectureSection />
     </main>
   );
@@ -255,7 +322,7 @@ export default function Page() {
 
 function Hero() {
   return (
-    <section className="border-b border-slate-200 bg-white">
+    <section className="border-b border-blue-100 bg-blue-50">
       <div className="mx-auto max-w-7xl px-6 py-10">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700">
@@ -321,7 +388,7 @@ function Hero() {
               <span className="rounded-full bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700">Denial Risk Scoring</span>
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+          <div className="rounded-2xl border border-blue-200 bg-white/80 p-6 shadow-sm">
             <h2 className="text-xl font-semibold text-slate-950">Streamlined Staff Workflow</h2>
             <p className="mt-2 text-slate-700">
               Staff create an intake, run AI analysis, then open a saved patient record with tabs for summary, uploaded documents, history, and raw operational data.
@@ -466,8 +533,33 @@ function IntakePreview({ form }) {
   );
 }
 
-function PatientRecord({ patient, patientTab, setPatientTab, onNewIntake }) {
+function PatientRecord({
+  patient,
+  patientTab,
+  setPatientTab,
+  onNewIntake,
+  onSavePatient,
+  onDeletePatient,
+  saving,
+}) {
   const normalized = useMemo(() => normalizePatient(patient), [patient]);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(() => patientToEditableForm(patient));
+
+  useEffect(() => {
+    setIsEditing(false);
+    setDraft(patientToEditableForm(patient));
+  }, [patient]);
+
+  function updateDraft(field, value) {
+    setDraft((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function saveDraft(e) {
+    e.preventDefault();
+    const saved = await onSavePatient(patient.id, draft);
+    if (saved) setIsEditing(false);
+  }
 
   if (!patient) {
     return (
@@ -486,7 +578,15 @@ function PatientRecord({ patient, patientTab, setPatientTab, onNewIntake }) {
             <h2 className="mt-1 text-3xl font-bold text-slate-950">{normalized.name}</h2>
             <p className="mt-2 text-sm text-slate-500">{normalized.request} • {normalized.insurance}</p>
           </div>
-          <button onClick={onNewIntake} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">New Intake</button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setIsEditing((prev) => !prev)} className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100">
+              {isEditing ? "Cancel Edit" : "Edit Profile"}
+            </button>
+            <button onClick={() => onDeletePatient(patient.id)} className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100">
+              Delete Profile
+            </button>
+            <button onClick={onNewIntake} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">New Intake</button>
+          </div>
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-4">
           <ResultCard label="PA Required" value={normalized.priorAuthRequired ? "Yes" : "No"} tone={normalized.priorAuthRequired ? "amber" : "green"} />
@@ -495,6 +595,12 @@ function PatientRecord({ patient, patientTab, setPatientTab, onNewIntake }) {
           <ResultCard label="Missing Docs" value={normalized.missingDocuments.length} tone={normalized.missingDocuments.length > 0 ? "red" : "green"} />
         </div>
       </div>
+
+      {isEditing && (
+        <div className="border-b border-blue-100 bg-blue-50/70 p-6">
+          <EditPatientForm draft={draft} updateDraft={updateDraft} saveDraft={saveDraft} saving={saving} />
+        </div>
+      )}
 
       <div className="border-b border-slate-200 px-6">
         <div className="flex flex-wrap gap-2">
@@ -508,14 +614,72 @@ function PatientRecord({ patient, patientTab, setPatientTab, onNewIntake }) {
       <div className="p-6">
         {patientTab === "summary" && <AISummaryTab normalized={normalized} />}
         {patientTab === "documents" && <DocumentsTab normalized={normalized} patient={patient} />}
-        {patientTab === "history" && <PatientHistoryTab normalized={normalized} />}
+        {patientTab === "history" && <PatientHistoryTab normalized={normalized} patient={patient} />}
         {patientTab === "raw" && <RawDataTab patient={patient} />}
       </div>
     </section>
   );
 }
 
+function EditPatientForm({ draft, updateDraft, saveDraft, saving }) {
+  const isMedication = draft.case_type === "Medication";
+
+  return (
+    <form onSubmit={saveDraft} className="grid gap-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Select label="Case Type" value={draft.case_type} onChange={(v) => {
+          updateDraft("case_type", v);
+          updateDraft("requested_procedure", v === "Medication" ? "Medication Prior Authorization" : "Lumbar Spine MRI");
+          updateDraft("requested_medication", v === "Medication" ? "Humira" : "N/A");
+          updateDraft("referral_status", v === "Medication" ? "N/A" : "Incomplete");
+        }} options={["Imaging", "Medication"]} />
+        <Input label="Patient Name" value={draft.patient_name} onChange={(v) => updateDraft("patient_name", v)} />
+        <Input label="Age" type="number" value={draft.age} onChange={(v) => updateDraft("age", v)} />
+        <Input label="Symptom Duration Weeks" type="number" value={draft.symptoms_duration_weeks} onChange={(v) => updateDraft("symptoms_duration_weeks", v)} />
+        {isMedication ? (
+          <Select label="Medicine" value={draft.requested_medication} onChange={(v) => updateDraft("requested_medication", v)} options={["Humira", "Ozempic", "Wegovy", "Mounjaro", "Enbrel", "Stelara", "Dupixent", "Eliquis", "Repatha", "Xolair"]} />
+        ) : (
+          <Select label="Procedure" value={draft.requested_procedure} onChange={(v) => updateDraft("requested_procedure", v)} options={["Lumbar Spine MRI", "Knee MRI", "Shoulder MRI", "Cervical Spine MRI"]} />
+        )}
+        <Select label="Insurance Provider" value={draft.insurance_provider} onChange={(v) => updateDraft("insurance_provider", v)} options={["BlueCross Mock PPO", "Medicare Advantage Mock Plan", "Medicaid Mock Managed Care", "UnitedCare Mock Commercial", "Self-Pay / Unverified Insurance"]} />
+        <Select label="Plan Type" value={draft.insurance_plan_type} onChange={(v) => updateDraft("insurance_plan_type", v)} options={["Commercial PPO", "Medicare Advantage Mock Plan", "Medicaid Mock Managed Care", "Self-Pay / Unverified"]} />
+        <Select label="Referral Status" value={draft.referral_status} onChange={(v) => updateDraft("referral_status", v)} options={["None", "Incomplete", "Justified", "N/A"]} />
+        <Input label="Diagnosis Code" value={draft.diagnosis_code} onChange={(v) => updateDraft("diagnosis_code", v)} required={false} />
+      </div>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-medium text-slate-700">Symptoms / Medical Need</span>
+        <textarea value={draft.symptoms} onChange={(e) => updateDraft("symptoms", e.target.value)} className="min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+      </label>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <Checkbox label="Eligibility Verified" checked={draft.eligibility_verification} onChange={(v) => updateDraft("eligibility_verification", v)} />
+        <Checkbox label={isMedication ? "Prescription / Physician Order" : "Physician Order"} checked={draft.physician_order} onChange={(v) => updateDraft("physician_order", v)} />
+        <Checkbox label="Clinical Notes" checked={draft.clinical_notes} onChange={(v) => updateDraft("clinical_notes", v)} />
+        {isMedication ? (
+          <>
+            <Checkbox label="Medication History / Failed Alternatives" checked={draft.medication_history} onChange={(v) => updateDraft("medication_history", v)} />
+            <Checkbox label="Formulary Exception / Step Therapy Notes" checked={draft.formulary_exception} onChange={(v) => updateDraft("formulary_exception", v)} />
+          </>
+        ) : (
+          <>
+            <Checkbox label="Conservative Treatment" checked={draft.conservative_treatment} onChange={(v) => updateDraft("conservative_treatment", v)} />
+            <Checkbox label="Physical Therapy Notes" checked={draft.physical_therapy_notes} onChange={(v) => updateDraft("physical_therapy_notes", v)} />
+          </>
+        )}
+      </div>
+
+      <button type="submit" disabled={saving} className="w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
+        {saving ? "Saving Changes..." : "Save Profile Changes"}
+      </button>
+    </form>
+  );
+}
+
 function AISummaryTab({ normalized }) {
+  const [riskHelp, setRiskHelp] = useState("");
+  const riskFactors = normalized.analysis?.risk_factors || [];
+
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       <div className="space-y-5">
@@ -535,6 +699,47 @@ function AISummaryTab({ normalized }) {
             <p className="mt-3 text-sm text-emerald-700">All required documentation appears complete. Risk score reduced to 0/100.</p>
           ) : (
             <p className="mt-3 text-sm text-slate-600">Risk is based on missing documentation, payer friction, and authorization readiness.</p>
+          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setRiskHelp(riskHelp === "read" ? "" : "read")}
+              className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+            >
+              What does this mean?
+            </button>
+            <button
+              type="button"
+              onClick={() => setRiskHelp(riskHelp === "breakdown" ? "" : "breakdown")}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              Score Breakdown
+            </button>
+          </div>
+          {riskHelp === "read" && (
+            <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+              A lower score means the case looks ready for prior authorization submission. A higher score means staff should review missing documents, eligibility, diagnosis support, or payer-specific rules before submitting.
+            </div>
+          )}
+          {riskHelp === "breakdown" && (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-white p-4">
+              {riskFactors.length > 0 ? (
+                <div className="space-y-3">
+                  {riskFactors.map((factor, index) => (
+                    <div key={index} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-slate-950">{factor.factor_name}</p>
+                        <span className="rounded-full bg-red-50 px-2 py-1 text-xs font-semibold text-red-700">+{factor.points_added}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-600">{factor.reason}</p>
+                      <p className="mt-1 text-xs font-medium text-blue-700">{factor.recommended_fix}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-600">No active risk factors are adding points for this record.</p>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -600,17 +805,25 @@ function DocumentsTab({ normalized, patient }) {
   );
 }
 
-function PatientHistoryTab({ normalized }) {
+function PatientHistoryTab({ normalized, patient }) {
+  const docs = patient?.documents || {};
+  const completedDocs = Object.entries(docs)
+    .filter(([, value]) => value)
+    .map(([key]) => key.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase()));
+  const medicationName = normalized.caseType === "Medication"
+    ? normalized.request.replace("Medication Prior Authorization - ", "")
+    : "";
   const historyItems = [
-    { title: "Patient intake created", detail: `${normalized.name} submitted an authorization request for ${normalized.request}.` },
-    { title: "Insurance checked", detail: `${normalized.insurance} was reviewed using mock eligibility and payer rules.` },
-    { title: "AI analysis completed", detail: normalized.missingDocuments.length === 0 ? "AI marked documentation as complete and reduced risk score to 0/100." : `AI detected ${normalized.missingDocuments.length} missing document(s).` },
-    { title: "Staff action generated", detail: normalized.missingDocuments.length === 0 ? "Recommended action: proceed with submission." : "Recommended action: request missing documents before submission." },
+    { title: "Requested care", detail: normalized.caseType === "Medication" ? `${normalized.name} is requesting prior authorization for ${medicationName || normalized.request}.` : `${normalized.name} is requesting ${normalized.request}.` },
+    { title: "Clinical need", detail: `${normalized.symptoms} Duration: ${patient?.symptoms_duration_weeks || "Unknown"} week(s).` },
+    { title: "Diagnosis and referral", detail: `Diagnosis code: ${patient?.diagnosis_code || "Not provided"}. Referral status: ${patient?.referral_status || "N/A"}.` },
+    { title: "Insurance profile", detail: `${normalized.insurance}. Plan type: ${patient?.plan_type || "Unknown"}. Eligibility ${patient?.eligibility_verified ? "verified" : "not verified"}.` },
+    { title: "Documentation on file", detail: completedDocs.length > 0 ? completedDocs.join(", ") : "No supporting documents marked complete yet." },
   ];
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
       <h3 className="font-semibold text-slate-950">Patient History</h3>
-      <p className="mt-1 text-sm text-slate-500">Mock timeline of this authorization workflow.</p>
+      <p className="mt-1 text-sm text-slate-500">Intake-based profile details collected for this authorization request.</p>
       <div className="mt-5 space-y-4">
         {historyItems.map((item, index) => (
           <div key={index} className="flex gap-4">
@@ -635,7 +848,7 @@ function RawDataTab({ patient }) {
   );
 }
 
-function OperationsQueue({ patients, openExistingPatient }) {
+function OperationsQueue({ patients, openExistingPatient, onDeletePatient }) {
   return (
     <section className="mx-auto max-w-7xl px-6 py-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -651,11 +864,12 @@ function OperationsQueue({ patients, openExistingPatient }) {
                 <th className="p-3">AI Score</th>
                 <th className="p-3">Risk</th>
                 <th className="p-3">Status</th>
+                <th className="p-3">Actions</th>
               </tr>
             </thead>
             <tbody>
               {patients.length === 0 ? (
-                <tr><td className="p-4 text-slate-500" colSpan="6">No patients loaded yet.</td></tr>
+                <tr><td className="p-4 text-slate-500" colSpan="7">No patients loaded yet.</td></tr>
               ) : (
                 patients.map((patient) => {
                   const normalized = normalizePatient(patient);
@@ -667,6 +881,18 @@ function OperationsQueue({ patients, openExistingPatient }) {
                       <td className="p-3">{normalized.displayRiskScore}/100</td>
                       <td className="p-3">{normalized.displayRiskLabel}</td>
                       <td className="p-3">{normalized.status || "Pending Review"}</td>
+                      <td className="p-3">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeletePatient(patient.id);
+                          }}
+                          className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
@@ -697,6 +923,42 @@ function ArchitectureSection() {
   );
 }
 
+function patientToEditableForm(patient) {
+  if (!patient) return demoPatient;
+
+  const normalized = normalizePatient(patient);
+  const docs = patient.documents || {};
+  const medicationMatch = normalized.request.match(/-\s*(.+)$/);
+  const requestedMedication =
+    normalized.caseType === "Medication"
+      ? medicationMatch?.[1] || normalized.request.replace("Medication Prior Authorization", "").trim() || "Humira"
+      : "N/A";
+
+  return {
+    case_type: normalized.caseType,
+    patient_name: normalized.name,
+    age: String(patient.age || ""),
+    symptoms: String(patient.symptoms || "").replace(/\s*Requested medication:.+$/i, ""),
+    symptoms_duration_weeks: String(patient.symptoms_duration_weeks || ""),
+    requested_procedure:
+      normalized.caseType === "Medication"
+        ? "Medication Prior Authorization"
+        : normalized.request,
+    requested_medication: requestedMedication,
+    insurance_provider: normalized.insurance,
+    insurance_plan_type: patient.plan_type || "Commercial PPO",
+    referral_status: patient.referral_status || "N/A",
+    diagnosis_code: patient.diagnosis_code || "",
+    eligibility_verification: Boolean(docs.eligibility_verification),
+    physician_order: Boolean(docs.physician_order),
+    clinical_notes: Boolean(docs.clinical_notes),
+    conservative_treatment: Boolean(docs.conservative_treatment),
+    physical_therapy_notes: Boolean(docs.physical_therapy_notes),
+    medication_history: Boolean(docs.conservative_treatment),
+    formulary_exception: Boolean(docs.physical_therapy_notes),
+  };
+}
+
 function normalizePatient(patient) {
   const analysis = patient?.analysis || {};
   const request = patient?.procedure_name || patient?.requested_procedure || "Authorization Request";
@@ -715,7 +977,9 @@ function normalizePatient(patient) {
     status: patient?.status || "Pending Review",
     analysis, missingDocuments, rawRiskScore, displayRiskScore, rawRiskLabel, displayRiskLabel,
     priorAuthRequired: analysis?.prior_authorization_required === undefined ? true : analysis?.prior_authorization_required,
-    recommendedAction: analysis?.recommended_action,
+    recommendedAction: Array.isArray(analysis?.recommended_actions)
+      ? analysis.recommended_actions[0]
+      : analysis?.recommended_action,
     payerPolicySummary: analysis?.payer_policy_summary,
   };
 }

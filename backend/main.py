@@ -15,7 +15,8 @@ from schemas import (
     PayerPolicyResponse, 
     AuditLogResponse,
     AnalyzeRequest,
-    DocumentState
+    DocumentState,
+    PatientUpdate
 )
 from rules import evaluate_weighted_rules
 from database import (
@@ -223,6 +224,88 @@ def read_patient(patient_id: int, db: Session = Depends(get_db)):
     if not p:
         raise HTTPException(status_code=404, detail="Patient record not found")
     return construct_patient_response(p)
+
+@app.put("/api/patients/{patient_id}", response_model=PatientResponse)
+def update_patient(patient_id: int, request: PatientUpdate, db: Session = Depends(get_db)):
+    p = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+
+    try:
+        p.name = request.patient_name
+        p.age = request.age
+        p.symptoms = request.symptoms
+        p.symptoms_duration_weeks = request.symptoms_duration_weeks
+        p.referral_status = request.referral_status
+
+        p.insurance.provider = request.insurance_provider
+        p.insurance.plan_type = request.insurance_plan_type
+        p.insurance.eligibility_verified = request.documents_provided.eligibility_verification
+
+        p.procedure_request.procedure_name = request.requested_procedure
+        p.procedure_request.diagnosis_code = request.diagnosis_code
+
+        docs = p.documents
+        docs.insurance_card = request.documents_provided.insurance_card
+        docs.eligibility_verification = request.documents_provided.eligibility_verification
+        docs.physician_order = request.documents_provided.physician_order
+        docs.diagnosis_code_doc = request.documents_provided.diagnosis_code_doc
+        docs.clinical_notes = request.documents_provided.clinical_notes
+        docs.referral = request.documents_provided.referral
+        docs.conservative_treatment = request.documents_provided.conservative_treatment
+        docs.physical_therapy_notes = request.documents_provided.physical_therapy_notes
+        docs.prior_auth_form = request.documents_provided.prior_auth_form
+        docs.payer_policy_reference = request.documents_provided.payer_policy_reference
+
+        analysis = evaluate_weighted_rules(p.id, p)
+        db_analysis = db.query(AnalysisResult).filter(AnalysisResult.patient_id == p.id).first()
+        if db_analysis:
+            db_analysis.initial_risk_score = analysis.initial_risk_score
+            db_analysis.initial_denial_risk = analysis.initial_denial_risk
+            db_analysis.projected_risk_score = analysis.projected_risk_after_actions
+            db_analysis.projected_denial_risk = "Low" if analysis.projected_risk_after_actions <= 30 else "Medium"
+            db_analysis.analysis_json = json.dumps(analysis.model_dump())
+        else:
+            db.add(AnalysisResult(
+                patient_id=p.id,
+                initial_risk_score=analysis.initial_risk_score,
+                initial_denial_risk=analysis.initial_denial_risk,
+                projected_risk_score=analysis.projected_risk_after_actions,
+                projected_denial_risk="Low" if analysis.projected_risk_after_actions <= 30 else "Medium",
+                analysis_json=json.dumps(analysis.model_dump())
+            ))
+
+        if analysis.initial_denial_risk == "High":
+            p.status = "High Risk"
+        elif not p.insurance.eligibility_verified:
+            p.status = "Needs Eligibility Verification"
+        elif len(analysis.missing_documents) > 0:
+            p.status = "Needs Documentation"
+        else:
+            p.status = "Ready to Submit"
+
+        db.add(AuditLog(
+            patient_id=p.id,
+            action="Patient profile edited",
+            details=f"Staff updated intake details for {p.name}. Request: {p.procedure_request.procedure_name}."
+        ))
+
+        db.commit()
+        db.refresh(p)
+        return construct_patient_response(p)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Patient update failed: {str(e)}")
+
+@app.delete("/api/patients/{patient_id}")
+def delete_patient(patient_id: int, db: Session = Depends(get_db)):
+    p = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+
+    db.delete(p)
+    db.commit()
+    return {"deleted": True, "patient_id": patient_id}
 
 # 4. POST /api/analyze: Re-run analysis
 @app.post("/api/analyze", response_model=DetailedAnalysisResponse)

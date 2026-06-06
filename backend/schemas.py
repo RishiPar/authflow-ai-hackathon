@@ -40,6 +40,9 @@ class IntakeCreate(BaseModel):
     diagnosis_code: Optional[str] = None
     documents_provided: DocumentState = Field(default_factory=DocumentState)
 
+class PatientUpdate(IntakeCreate):
+    pass
+
 # Detailed items in risk factor list
 class RiskFactorDetail(BaseModel):
     factor_name: str
