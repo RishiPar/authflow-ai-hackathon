@@ -58,6 +58,7 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState("");
+  const [showIntakeForm, setShowIntakeForm] = useState(false);
 
   const API_BASE = "http://127.0.0.1:8000/api";
 
@@ -237,58 +238,53 @@ export default function Page() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button 
               onClick={loadData}
-              className="p-2 text-gray-500 hover:text-blue-600 rounded-lg border border-gray-250 hover:bg-gray-50 transition"
-              title="Refresh Queue"
+              className="p-2 text-gray-500 hover:text-blue-600 rounded-lg border border-gray-200 hover:bg-gray-50 transition"
+              title="Refresh data"
             >
               <RefreshCw className="h-4 w-4" />
             </button>
-            <span className="text-xs px-2.5 py-1 rounded-md bg-blue-50 border border-blue-200 text-blue-700 font-bold uppercase tracking-wider">
-              MVP Operations Panel
-            </span>
+
+            {/* Live Demo badge */}
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              Live Demo
+            </div>
+
+            {/* View toggle */}
+            <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-full px-1 py-1">
+              <span className="text-[11px] font-semibold text-gray-500 pl-2">Traditional</span>
+              <a
+                href="/beforeDemo"
+                className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors focus:outline-none"
+                title="Switch to traditional workflow view"
+              >
+                <span className="inline-block h-4 w-4 translate-x-6 transform rounded-full bg-white shadow transition-transform" />
+              </a>
+              <span className="text-[11px] font-semibold text-blue-700 pr-2">AuthFlow AI</span>
+            </div>
           </div>
         </div>
       </header>
 
       <div className="max-w-5xl mx-auto w-full px-4 mt-6 space-y-6">
 
-        {/* 2. Safety and Compliance Banner */}
-        <section className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-xl shadow-xs">
-          <div className="flex items-start gap-3">
-            <ShieldAlert className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <h3 className="font-bold text-amber-850 text-sm">
-                Safety & Compliance Notice
-              </h3>
-              <p className="text-xs text-amber-800 mt-1">
-                Demo uses synthetic/mock data only. Not for clinical use. Human review required before submission.
-              </p>
-              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 mt-2 text-[11px] text-amber-700 list-disc pl-4">
-                <li>No real patient Protected Health Information (PHI) is processed or stored.</li>
-                <li>System supports operational decisions only; does not generate medical diagnosis predictions.</li>
-                <li>Not medical advice. Does not determine final insurance coverage or guarantee payer approval.</li>
-                <li>Designed for future HIPAA-aware deployment, but this demo does not claim formal compliance.</li>
-              </ul>
-            </div>
+        {/* 2+3. Compact notice banners */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1 bg-amber-50 border-l-4 border-amber-500 px-4 py-2.5 rounded-r-xl flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-amber-600 shrink-0" />
+            <p className="text-[11px] text-amber-800 font-medium">Demo uses synthetic data only. Not for clinical use. Human review required before submission.</p>
           </div>
-        </section>
-
-        {/* 3. Hospital Integration Banner */}
-        <section className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-xl shadow-xs">
-          <div className="flex items-start gap-3">
-            <Layers className="h-5 w-5 text-blue-700 shrink-0 mt-0.5" />
-            <div>
-              <h3 className="font-bold text-blue-900 text-sm">
-                Hospital System Integration Active
-              </h3>
-              <p className="text-xs text-blue-800 mt-1">
-                AuthFlow AI is configured with standard integration APIs. Rather than replacing existing hospital workflows, it intercepts intake data, computes operational denial risk, and sends structural checklists back to your EHR or billing console.
-              </p>
-            </div>
+          <div className="flex-1 bg-blue-50 border-l-4 border-blue-600 px-4 py-2.5 rounded-r-xl flex items-center gap-2">
+            <Layers className="h-4 w-4 text-blue-700 shrink-0" />
+            <p className="text-[11px] text-blue-800 font-medium">Plug-and-play middleware — intercepts intake data, runs AI risk analysis, sends checklists to your EHR.</p>
           </div>
-        </section>
+        </div>
 
         {/* 4. Dashboard Summary Metrics */}
         <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs">
@@ -321,8 +317,8 @@ export default function Page() {
               <span className="text-xl font-extrabold text-indigo-700 block mt-1">{metrics.estimated_delay_avoided_days}d</span>
             </div>
             <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 text-center">
-              <span className="text-[10px] text-purple-600 block uppercase font-semibold">Risk averted</span>
-              <span className="text-xl font-extrabold text-purple-700 block mt-1">-{metrics.estimated_denial_risk_reduction_pct}%</span>
+              <span className="text-[10px] text-purple-600 block uppercase font-semibold">Risk Reduced</span>
+              <span className="text-xl font-extrabold text-purple-700 block mt-1">{metrics.estimated_denial_risk_reduction_pct}%</span>
             </div>
           </div>
         </section>
@@ -338,13 +334,23 @@ export default function Page() {
           </div>
         )}
 
-        {/* 5. Patient Intake Form */}
-        <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <h2 className="text-base font-bold text-gray-950 flex items-center gap-2 mb-4">
-            <Plus className="h-5 w-5 text-blue-600" />
-            Operational Patient Intake Portal
-          </h2>
-          
+        {/* 5. Patient Intake Form — collapsible */}
+        <section className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+          <button
+            onClick={() => setShowIntakeForm(s => !s)}
+            className="w-full flex items-center justify-between p-6 text-left hover:bg-gray-50 transition"
+          >
+            <h2 className="text-base font-bold text-gray-950 flex items-center gap-2">
+              <Plus className="h-5 w-5 text-blue-600" />
+              Add New Patient to Queue
+            </h2>
+            <span className="text-xs text-blue-600 font-semibold border border-blue-200 bg-blue-50 px-3 py-1 rounded-full">
+              {showIntakeForm ? "Hide Form ▲" : "Open Form ▼"}
+            </span>
+          </button>
+
+          {showIntakeForm && (
+          <div className="px-6 pb-6">
           {successMsg && (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-850 px-4 py-3 rounded-lg text-xs font-semibold mb-4">
               {successMsg}
@@ -508,6 +514,8 @@ export default function Page() {
               ) : "Create Intake Record & Run Analysis"}
             </button>
           </form>
+          </div>
+          )}
         </section>
 
         {/* 6. Saved Patient Queue */}
@@ -706,13 +714,16 @@ export default function Page() {
             </section>
 
             {/* 10. Missing Documents Checklist */}
-            <section className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+            <section className="bg-white border-2 border-blue-200 rounded-2xl p-6 shadow-sm">
               <div className="border-b border-gray-150 pb-3 mb-4">
-                <h3 className="text-base font-bold text-gray-950">
-                  Interactive Clinical Documentation Audit Checklist
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Check boxes when files are received/verified. The AI risk score and delay metrics recalculate dynamically.
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-gray-950">
+                    Interactive Clinical Documentation Audit Checklist
+                  </h3>
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-600 text-white px-2.5 py-1 rounded-full">Live AI Scoring</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  ✦ Check boxes when documents are received — the AI risk score recalculates instantly.
                 </p>
               </div>
 
