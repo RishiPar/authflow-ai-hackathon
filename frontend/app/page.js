@@ -354,8 +354,6 @@ export default function Page() {
         </div>
       </section>
 
-      <WorkflowSection />
-
       {error && (
         <section className="mx-auto max-w-7xl px-6 py-2">
           <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-700">
@@ -454,7 +452,6 @@ export default function Page() {
         />
       )}
 
-      <ArchitectureSection />
     </main>
   );
 }
@@ -532,24 +529,6 @@ function Hero() {
               case data.
             </p>
           </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function WorkflowSection() {
-  return (
-    <section className="mx-auto max-w-7xl px-6 py-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-2xl font-bold text-slate-950">AI Workflow</h2>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-5">
-          <WorkflowStep number="1" title="Patient Intake" />
-          <WorkflowStep number="2" title="Eligibility Check" />
-          <WorkflowStep number="3" title="Policy Retrieval" />
-          <WorkflowStep number="4" title="Risk Analysis" />
-          <WorkflowStep number="5" title="Patient Record" />
         </div>
       </div>
     </section>
@@ -1844,27 +1823,6 @@ function PatientTable({ patients, openExistingPatient, onDeletePatient }) {
   );
 }
 
-function ArchitectureSection() {
-  return (
-    <section className="mx-auto max-w-7xl px-6 py-10">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-2xl font-bold text-slate-950">
-          System Architecture
-        </h2>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-6">
-          <ArchitectureBox title="Next.js" subtitle="Patient Intake UI" />
-          <ArchitectureBox title="FastAPI" subtitle="Backend API" />
-          <ArchitectureBox title="SQLite" subtitle="Mock Case Storage" />
-          <ArchitectureBox title="LangGraph" subtitle="Workflow Agent" />
-          <ArchitectureBox title="ChromaDB" subtitle="Policy Retrieval" />
-          <ArchitectureBox title="OpenAI" subtitle="Structured AI Output" />
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function patientToEditableForm(patient) {
   if (!patient) return imagingDemoPatient;
 
@@ -2015,17 +1973,6 @@ function MetricCard({ label, value }) {
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-bold text-slate-950">{value ?? 0}</p>
-    </div>
-  );
-}
-
-function WorkflowStep({ number, title }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
-        {number}
-      </div>
-      <p className="font-semibold text-slate-900">{title}</p>
     </div>
   );
 }
@@ -2184,15 +2131,4 @@ function PatientTabButton({ active, onClick, children, color = "blue" }) {
     </button>
   );
 }
-
-function ArchitectureBox({ title, subtitle }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
-      <p className="font-semibold text-slate-900">{title}</p>
-      <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
-    </div>
-  );
-}
-
-
 
